@@ -17,6 +17,7 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography
@@ -107,7 +108,11 @@ function RepairmanCheckerDialog({ open, mode, initialData, userOptions, onClose,
 export default function RepairmanCheckersPage() {
   const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const { data: checkers = [], isLoading, isError, error } = useRepairmanCheckers();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const { data, isLoading, isError, error, isFetching } = useRepairmanCheckers({ page, pageSize });
+  const checkers = useMemo(() => data?.items ?? [], [data?.items]);
+  const totalCount = data?.totalCount ?? 0;
   const { data: users = [] } = useUserOptions({ top: 200 });
   const createChecker = useCreateRepairmanChecker();
   const updateChecker = useUpdateRepairmanChecker(dialogState.data?.id);
@@ -160,7 +165,15 @@ export default function RepairmanCheckersPage() {
   const table = useReactTable({
     data: checkers,
     columns,
-    getCoreRowModel: getCoreRowModel()
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    rowCount: totalCount,
+    state: {
+      pagination: {
+        pageIndex: Math.max(0, page - 1),
+        pageSize
+      }
+    }
   });
 
   if (isError) {
@@ -182,7 +195,7 @@ export default function RepairmanCheckersPage() {
           </Button>
         </Stack>
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
+        <Box>
           <TableContainer component={Paper} variant="outlined">
             <Table size="small">
               <TableHead>
@@ -240,8 +253,20 @@ export default function RepairmanCheckersPage() {
                 )}
               </TableBody>
             </Table>
+            <TablePagination
+              component="div"
+              count={totalCount}
+              page={Math.max(0, page - 1)}
+              onPageChange={(_, nextPage) => setPage(nextPage + 1)}
+              rowsPerPage={pageSize}
+              onRowsPerPageChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              rowsPerPageOptions={[10, 20, 50, 100]}
+            />
           </TableContainer>
-        </Paper>
+        </Box>
       </Stack>
 
       <RepairmanCheckerDialog

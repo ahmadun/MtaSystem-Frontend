@@ -58,6 +58,11 @@ const CHECKSHEET_MODES = [
   { value: "regular", label: "Regular" }
 ];
 
+const INSPECTION_ENTRY_MODES = [
+  { value: "date", label: "Date" },
+  { value: "board", label: "Board Code" }
+];
+
 function blankColumn(sortOrder) {
   return {
     columnKey: `column_${sortOrder + 1}`,
@@ -149,6 +154,7 @@ function buildInitialForm(template) {
     return {
       name: "",
       checksheetMode: "daily",
+      inspectionEntryMode: "date",
       description: "",
       isActive: true,
       columns,
@@ -161,6 +167,7 @@ function buildInitialForm(template) {
   return {
     name: template.name ?? "",
     checksheetMode: template.checksheetMode ?? "daily",
+    inspectionEntryMode: template.inspectionEntryMode ?? "date",
     description: template.description ?? "",
     isActive: template.isActive ?? true,
     columns: (template.columns ?? []).map((column, index) => ({
@@ -222,6 +229,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
     const payload = {
       name: form.name.trim(),
       checksheetMode: form.checksheetMode,
+      inspectionEntryMode: form.inspectionEntryMode,
       description: form.description.trim() || null,
       isActive: form.isActive,
       columns: form.columns.map((column, index) => ({
@@ -308,259 +316,270 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
 
   const innerContent = (
     <>
-        {isEdit && detailQuery.isLoading ? (
-          <Typography color="text.secondary">Loading template...</Typography>
-        ) : (
-          <Stack spacing={3}>
-            <Box sx={formGridSx}>
-              <TextField label="Template Name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} fullWidth />
-              <TextField
-                select
-                label="Checksheet Mode"
-                value={form.checksheetMode}
-                onChange={(event) => setForm((current) => ({ ...current, checksheetMode: event.target.value }))}
-                sx={{ minWidth: 180 }}
-              >
-                {CHECKSHEET_MODES.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                ))}
-              </TextField>
-              <TextField select label="Status" value={form.isActive ? "active" : "inactive"} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.value === "active" }))} sx={{ minWidth: 160 }}>
-                <MenuItem value="active">Active</MenuItem>
-                <MenuItem value="inactive">Inactive</MenuItem>
-              </TextField>
-            </Box>
+      {isEdit && detailQuery.isLoading ? (
+        <Typography color="text.secondary">Loading template...</Typography>
+      ) : (
+        <Stack spacing={3}>
+          <Box sx={formGridSx}>
+            <TextField label="Template Name" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} fullWidth />
+            <TextField
+              select
+              label="Checksheet Mode"
+              value={form.checksheetMode}
+              onChange={(event) => setForm((current) => ({ ...current, checksheetMode: event.target.value }))}
+              sx={{ minWidth: 180 }}
+            >
+              {CHECKSHEET_MODES.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
+              label="Inspection Entry"
+              value={form.inspectionEntryMode}
+              onChange={(event) => setForm((current) => ({ ...current, inspectionEntryMode: event.target.value }))}
+              sx={{ minWidth: 180 }}
+            >
+              {INSPECTION_ENTRY_MODES.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </TextField>
+            <TextField select label="Status" value={form.isActive ? "active" : "inactive"} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.value === "active" }))} sx={{ minWidth: 160 }}>
+              <MenuItem value="active">Active</MenuItem>
+              <MenuItem value="inactive">Inactive</MenuItem>
+            </TextField>
+          </Box>
 
-            <TextField label="Description" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} multiline minRows={2} />
+          <TextField label="Description" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} multiline minRows={2} />
 
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-                <Typography variant="h6">Columns</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, columns: [...current.columns, blankColumn(current.columns.length)] }))}>Add Column</Button>
-              </Stack>
-              <Stack spacing={1.5}>
-                {form.columns.map((column, index) => (
-                  <Paper key={index} variant="outlined" sx={{ p: 2 }}>
-                    <Box sx={columnGridSx}>
-                      <TextField
-                        label="Label"
-                        value={column.label}
-                        onChange={(event) =>
-                          setForm((current) => {
-                            const nextLabel = event.target.value;
-                            const previousKey = current.columns[index].columnKey;
-                            const nextKey = normalizeColumnKey(nextLabel, index);
+          <Box>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+              <Typography variant="h6">Columns</Typography>
+              <Button size="small" startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, columns: [...current.columns, blankColumn(current.columns.length)] }))}>Add Column</Button>
+            </Stack>
+            <Stack spacing={1.5}>
+              {form.columns.map((column, index) => (
+                <Paper key={index} variant="outlined" sx={{ p: 2 }}>
+                  <Box sx={columnGridSx}>
+                    <TextField
+                      label="Label"
+                      value={column.label}
+                      onChange={(event) =>
+                        setForm((current) => {
+                          const nextLabel = event.target.value;
+                          const previousKey = current.columns[index].columnKey;
+                          const nextKey = normalizeColumnKey(nextLabel, index);
 
-                            return {
-                              ...current,
-                              columns: current.columns.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, label: nextLabel, columnKey: nextKey } : item
-                              ),
-                              items: syncItemKeys(current.items, previousKey, nextKey)
-                            };
-                          })
-                        }
-                        fullWidth
-                      />
-                      <TextField select label="Type" value={column.columnType} onChange={(event) => setForm((current) => ({ ...current, columns: current.columns.map((item, itemIndex) => itemIndex === index ? { ...item, columnType: event.target.value } : item) }))} sx={{ minWidth: 150 }}>
-                        {COLUMN_TYPES.map((option) => (
-                          <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                        ))}
-                      </TextField>
-                      <TextField select label="Required" value={column.isRequired ? "yes" : "no"} onChange={(event) => setForm((current) => ({ ...current, columns: current.columns.map((item, itemIndex) => itemIndex === index ? { ...item, isRequired: event.target.value === "yes" } : item) }))} sx={{ minWidth: 110 }}>
-                        <MenuItem value="yes">Yes</MenuItem>
-                        <MenuItem value="no">No</MenuItem>
-                      </TextField>
-                      <TextField
-                        select
-                        label="Merge Same Rows"
-                        value={column.enableRowSpan ? "yes" : "no"}
-                        onChange={(event) =>
-                          setForm((current) => ({
+                          return {
                             ...current,
                             columns: current.columns.map((item, itemIndex) =>
-                              itemIndex === index ? { ...item, enableRowSpan: event.target.value === "yes" } : item
-                            )
-                          }))
-                        }
-                        sx={{ minWidth: 130 }}
-                      >
-                        <MenuItem value="yes">Yes</MenuItem>
-                        <MenuItem value="no">No</MenuItem>
-                      </TextField>
-                      <IconButton color="error" disabled={form.columns.length <= 1} onClick={() => setForm((current) => ({ ...current, columns: current.columns.filter((_, itemIndex) => itemIndex !== index) }))}>
-                        <DeleteOutlineIcon />
-                      </IconButton>
-                    </Box>
-                  </Paper>
-                ))}
-              </Stack>
-            </Box>
-
-            <Divider />
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-                <Typography variant="h6">Template Items</Typography>
-                <Button size="small" startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, items: [...current.items, createItemFromColumns(current.columns, current.items.length)] }))}>Add Item</Button>
-              </Stack>
-              <Stack spacing={1.5}>
-                {form.items.map((item, index) => (
-                  <Paper key={index} variant="outlined" sx={{ p: 2 }}>
-                    <Stack spacing={1.5}>
-                      <Box sx={itemHeaderSx}>
-                        <Typography variant="subtitle2">Item #{index + 1}</Typography>
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <TextField
-                            select
-                            label="Answer Type"
-                            value={item.valueType ?? "fixed"}
-                            onChange={(event) =>
-                              setForm((current) => ({
-                                ...current,
-                                items: current.items.map((currentItem, itemIndex) =>
-                                  itemIndex === index ? { ...currentItem, valueType: event.target.value } : currentItem
-                                )
-                              }))
-                            }
-                            sx={{ minWidth: 220 }}
-                          >
-                            {ITEM_VALUE_TYPES.map((option) => (
-                              <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
-                            ))}
-                          </TextField>
-                          <IconButton color="error" disabled={form.items.length <= 1} onClick={() => setForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}>
-                            <DeleteOutlineIcon />
-                          </IconButton>
-                        </Stack>
-                      </Box>
-                      <Box sx={itemFieldsGridSx}>
-                        {form.columns.map((column) => (
-                          <TextField
-                            key={`${column.columnKey}-${index}`}
-                            label={column.label}
-                            multiline={column.columnType === "textarea"}
-                            minRows={column.columnType === "textarea" ? 2 : undefined}
-                            value={item[column.columnKey] ?? ""}
-                            onChange={(event) =>
-                              setForm((current) => ({
-                                ...current,
-                                items: current.items.map((currentItem, itemIndex) => itemIndex === index ? { ...currentItem, [column.columnKey]: event.target.value } : currentItem)
-                              }))
-                            }
-                            fullWidth
-                          />
-                        ))}
-                      </Box>
-                    </Stack>
-                  </Paper>
-                ))}
-              </Stack>
-            </Box>
-
-            <Divider />
-
-            <Box>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-                <Box>
-                  <Typography variant="h6">
-                    {form.checksheetMode === "regular" ? "Regular Approval Steps" : "Daily Approval Steps"}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Optional. These approval rows run sequentially for the selected checksheet mode.
-                  </Typography>
-                </Box>
-                <Button
-                  size="small"
-                  startIcon={<AddIcon />}
-                  onClick={() =>
-                    setForm((current) => ({
-                      ...current,
-                      [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: [
-                        ...current[current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"],
-                        current.checksheetMode === "regular"
-                          ? blankRegularApprovalStep(current.regularApprovalSteps.length + 1)
-                          : blankDailyApprovalStep(current.dailyApprovalSteps.length + 1)
-                      ]
-                    }))
-                  }
-                >
-                  Add Step
-                </Button>
-              </Stack>
-
-              <Stack spacing={1.5}>
-                {activeApprovalSteps.map((step, index) => (
-                  <Paper key={`${form.checksheetMode}-step-${index}`} variant="outlined" sx={{ p: 2 }}>
-                    <Box
-                      sx={{
-                        display: "grid",
-                        gap: 1.5,
-                        gridTemplateColumns: {
-                          xs: "minmax(0, 1fr)",
-                          md: "110px minmax(220px, 1.1fr) minmax(260px, 1fr) auto"
-                        },
-                        alignItems: "start"
-                      }}
+                              itemIndex === index ? { ...item, label: nextLabel, columnKey: nextKey } : item
+                            ),
+                            items: syncItemKeys(current.items, previousKey, nextKey)
+                          };
+                        })
+                      }
+                      fullWidth
+                    />
+                    <TextField select label="Type" value={column.columnType} onChange={(event) => setForm((current) => ({ ...current, columns: current.columns.map((item, itemIndex) => itemIndex === index ? { ...item, columnType: event.target.value } : item) }))} sx={{ minWidth: 150 }}>
+                      {COLUMN_TYPES.map((option) => (
+                        <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField select label="Required" value={column.isRequired ? "yes" : "no"} onChange={(event) => setForm((current) => ({ ...current, columns: current.columns.map((item, itemIndex) => itemIndex === index ? { ...item, isRequired: event.target.value === "yes" } : item) }))} sx={{ minWidth: 110 }}>
+                      <MenuItem value="yes">Yes</MenuItem>
+                      <MenuItem value="no">No</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      label="Merge Same Rows"
+                      value={column.enableRowSpan ? "yes" : "no"}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          columns: current.columns.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, enableRowSpan: event.target.value === "yes" } : item
+                          )
+                        }))
+                      }
+                      sx={{ minWidth: 130 }}
                     >
-                      <TextField label="Order" value={index + 1} InputProps={{ readOnly: true }} />
-                      <TextField
-                        label="Step Description"
-                        value={step.stepName}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
-                              current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
-                            ].map((item, itemIndex) => (itemIndex === index ? { ...item, stepName: event.target.value } : item))
-                          }))
-                        }
-                        fullWidth
-                      />
-                      <Autocomplete
-                        options={userOptions}
-                        value={userOptions.find((option) => option.userId === step.approverUserId) ?? null}
-                        onChange={(_, option) =>
-                          setForm((current) => ({
-                            ...current,
-                            [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
-                              current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
-                            ].map((item, itemIndex) => (itemIndex === index ? { ...item, approverUserId: option?.userId ?? null } : item))
-                          }))
-                        }
-                        isOptionEqualToValue={(option, value) => option.userId === value.userId}
-                        getOptionLabel={(option) =>
-                          option?.employeeName
-                            ? `${option.username} - ${option.employeeName}`
-                            : option?.email
-                              ? `${option.username} (${option.email})`
-                              : option?.username || ""
-                        }
-                        renderInput={(params) => <TextField {...params} label="Approver" />}
-                      />
-                      <IconButton
-                        color="error"
-                        disabled={activeApprovalSteps.length <= 1}
-                        onClick={() =>
-                          setForm((current) => ({
-                            ...current,
-                            [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
-                              current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
-                            ]
-                              .filter((_, itemIndex) => itemIndex !== index)
-                              .map((item, itemIndex) => ({ ...item, stepOrder: itemIndex + 1 }))
-                          }))
-                        }
-                      >
-                        <DeleteOutlineIcon />
-                      </IconButton>
+                      <MenuItem value="yes">Yes</MenuItem>
+                      <MenuItem value="no">No</MenuItem>
+                    </TextField>
+                    <IconButton color="error" disabled={form.columns.length <= 1} onClick={() => setForm((current) => ({ ...current, columns: current.columns.filter((_, itemIndex) => itemIndex !== index) }))}>
+                      <DeleteOutlineIcon />
+                    </IconButton>
+                  </Box>
+                </Paper>
+              ))}
+            </Stack>
+          </Box>
+
+          <Divider />
+
+          <Box>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+              <Typography variant="h6">Template Items</Typography>
+              <Button size="small" startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, items: [...current.items, createItemFromColumns(current.columns, current.items.length)] }))}>Add Item</Button>
+            </Stack>
+            <Stack spacing={1.5}>
+              {form.items.map((item, index) => (
+                <Paper key={index} variant="outlined" sx={{ p: 2 }}>
+                  <Stack spacing={1.5}>
+                    <Box sx={itemHeaderSx}>
+                      <Typography variant="subtitle2">Item #{index + 1}</Typography>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <TextField
+                          select
+                          label="Answer Type"
+                          value={item.valueType ?? "fixed"}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              items: current.items.map((currentItem, itemIndex) =>
+                                itemIndex === index ? { ...currentItem, valueType: event.target.value } : currentItem
+                              )
+                            }))
+                          }
+                          sx={{ minWidth: 220 }}
+                        >
+                          {ITEM_VALUE_TYPES.map((option) => (
+                            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                          ))}
+                        </TextField>
+                        <IconButton color="error" disabled={form.items.length <= 1} onClick={() => setForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}>
+                          <DeleteOutlineIcon />
+                        </IconButton>
+                      </Stack>
                     </Box>
-                  </Paper>
-                ))}
-              </Stack>
-            </Box>
-          </Stack>
-        )}
+                    <Box sx={itemFieldsGridSx}>
+                      {form.columns.map((column) => (
+                        <TextField
+                          key={`${column.columnKey}-${index}`}
+                          label={column.label}
+                          multiline={column.columnType === "textarea"}
+                          minRows={column.columnType === "textarea" ? 2 : undefined}
+                          value={item[column.columnKey] ?? ""}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              items: current.items.map((currentItem, itemIndex) => itemIndex === index ? { ...currentItem, [column.columnKey]: event.target.value } : currentItem)
+                            }))
+                          }
+                          fullWidth
+                        />
+                      ))}
+                    </Box>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </Box>
+
+          <Divider />
+
+          <Box>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+              <Box>
+                <Typography variant="h6">
+                  {form.checksheetMode === "regular" ? "Regular Approval Steps" : "Daily Approval Steps"}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Optional. These approval rows run sequentially for the selected checksheet mode.
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: [
+                      ...current[current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"],
+                      current.checksheetMode === "regular"
+                        ? blankRegularApprovalStep(current.regularApprovalSteps.length + 1)
+                        : blankDailyApprovalStep(current.dailyApprovalSteps.length + 1)
+                    ]
+                  }))
+                }
+              >
+                Add Step
+              </Button>
+            </Stack>
+
+            <Stack spacing={1.5}>
+              {activeApprovalSteps.map((step, index) => (
+                <Paper key={`${form.checksheetMode}-step-${index}`} variant="outlined" sx={{ p: 2 }}>
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gap: 1.5,
+                      gridTemplateColumns: {
+                        xs: "minmax(0, 1fr)",
+                        md: "110px minmax(220px, 1.1fr) minmax(260px, 1fr) auto"
+                      },
+                      alignItems: "start"
+                    }}
+                  >
+                    <TextField label="Order" value={index + 1} InputProps={{ readOnly: true }} />
+                    <TextField
+                      label="Step Description"
+                      value={step.stepName}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
+                            current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
+                          ].map((item, itemIndex) => (itemIndex === index ? { ...item, stepName: event.target.value } : item))
+                        }))
+                      }
+                      fullWidth
+                    />
+                    <Autocomplete
+                      options={userOptions}
+                      value={userOptions.find((option) => option.userId === step.approverUserId) ?? null}
+                      onChange={(_, option) =>
+                        setForm((current) => ({
+                          ...current,
+                          [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
+                            current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
+                          ].map((item, itemIndex) => (itemIndex === index ? { ...item, approverUserId: option?.userId ?? null } : item))
+                        }))
+                      }
+                      isOptionEqualToValue={(option, value) => option.userId === value.userId}
+                      getOptionLabel={(option) =>
+                        option?.employeeName
+                          ? `${option.username} - ${option.employeeName}`
+                          : option?.email
+                            ? `${option.username} (${option.email})`
+                            : option?.username || ""
+                      }
+                      renderInput={(params) => <TextField {...params} label="Approver" />}
+                    />
+                    <IconButton
+                      color="error"
+                      disabled={activeApprovalSteps.length <= 1}
+                      onClick={() =>
+                        setForm((current) => ({
+                          ...current,
+                          [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
+                            current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
+                          ]
+                            .filter((_, itemIndex) => itemIndex !== index)
+                            .map((item, itemIndex) => ({ ...item, stepOrder: itemIndex + 1 }))
+                        }))
+                      }
+                    >
+                      <DeleteOutlineIcon />
+                    </IconButton>
+                  </Box>
+                </Paper>
+              ))}
+            </Stack>
+          </Box>
+        </Stack>
+      )}
     </>
   );
 
@@ -652,6 +671,17 @@ export default function ChecksheetTemplatesPage() {
         )
       },
       {
+        id: "entryMode",
+        header: "Entry",
+        cell: ({ row }) => (
+          <Chip
+            label={row.original.inspectionEntryMode === "board" ? "Board Code" : "Date"}
+            size="small"
+            variant="outlined"
+          />
+        )
+      },
+      {
         accessorKey: "itemCount",
         header: "Items"
       },
@@ -719,10 +749,6 @@ export default function ChecksheetTemplatesPage() {
               New Template
             </Button>
           )}
-        </Stack>
-
-        <Stack direction="row" spacing={1.5} flexWrap="wrap">
-          <Chip label={`${stats.total} Templates`} variant="outlined" />
         </Stack>
 
         {isLoading ? (

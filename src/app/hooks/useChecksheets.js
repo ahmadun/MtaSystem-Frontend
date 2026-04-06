@@ -17,7 +17,9 @@ import {
   getChecksheetGroups,
   getRepairmanCheckers,
   getChecksheetLines,
+  getChecksheetMachine,
   getChecksheetMachines,
+  exportChecksheetMachineLabels,
   deleteChecksheetArea,
   deleteChecksheetMaster,
   deleteChecksheetGroup,
@@ -36,6 +38,7 @@ import {
   getApprovalTemplates,
   getChecksheetSubmission,
   getChecksheetSubmissionMonthlyView,
+  getChecksheetMonthlyResults,
   getChecksheetSubmissions,
   getRepairHistory,
   getChecksheetTemplate,
@@ -61,14 +64,15 @@ export const CHECKSHEET_KEYS = {
   templates: (params) => ["checksheets", "templates", params],
   template: (id) => ["checksheets", "templates", id],
   submissions: (params) => ["checksheets", "submissions", params],
+  monthlyResults: (params) => ["checksheets", "monthly-results", params],
   submission: (id, params) => ["checksheets", "submission", id, params],
   submissionBase: (id) => ["checksheets", "submission", id],
   submissionMonthlyView: (id, params) => ["checksheets", "submission", id, "monthly-view", params],
   repairHistory: (params) => ["checksheets", "repair-history", params],
   approvalTemplates: (params) => ["checksheets", "approval-templates", params],
   approvalRequest: (submissionId, requestId) => ["checksheets", "approval-request", submissionId, requestId],
-  pendingApprovals: ["checksheets", "pending-approvals"],
-  pendingRepairs: ["checksheets", "pending-repairs"]
+  pendingApprovals: (params) => ["checksheets", "pending-approvals", params],
+  pendingRepairs: (params) => ["checksheets", "pending-repairs", params]
 };
 
 export const useChecksheetMasters = (options = {}) =>
@@ -103,10 +107,11 @@ export const useChecksheetGroups = (options = {}) =>
     ...options
   });
 
-export const useRepairmanCheckers = (options = {}) =>
+export const useRepairmanCheckers = (params = {}, options = {}) =>
   useQuery({
-    queryKey: ["checksheets", "masters", "repairman-checkers"],
-    queryFn: () => getRepairmanCheckers().then((res) => res.data),
+    queryKey: ["checksheets", "masters", "repairman-checkers", params],
+    queryFn: () => getRepairmanCheckers(params).then((res) => res.data),
+    keepPreviousData: true,
     staleTime: 30_000,
     ...options
   });
@@ -116,6 +121,15 @@ export const useChecksheetMachines = (params = {}, options = {}) =>
     queryKey: ["checksheets", "masters", "machines", params],
     queryFn: () => getChecksheetMachines(params).then((res) => res.data),
     keepPreviousData: true,
+    staleTime: 30_000,
+    ...options
+  });
+
+export const useChecksheetMachine = (machineCode, options = {}) =>
+  useQuery({
+    queryKey: ["checksheets", "masters", "machines", machineCode],
+    queryFn: () => getChecksheetMachine(machineCode).then((res) => res.data),
+    enabled: !!machineCode,
     staleTime: 30_000,
     ...options
   });
@@ -181,6 +195,35 @@ export const useUpsertChecksheetMachineModeTemplate = () =>
 export const useDeleteChecksheetMachine = () =>
   useSnackbarMutation(deleteChecksheetMachine, [CHECKSHEET_KEYS.all], "Checksheet line deleted successfully");
 
+export const useExportChecksheetMachineLabels = () => {
+  const { enqueueSnackbar } = useSnackbar();
+
+  return useMutation({
+    mutationFn: exportChecksheetMachineLabels,
+    onSuccess: (response) => {
+      const blob = new Blob([response.data], {
+        type: response.headers["content-type"] || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const contentDisposition = response.headers["content-disposition"] || "";
+      const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+      const fileName = fileNameMatch?.[1] || "checksheet-machine-labels.xlsx";
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      enqueueSnackbar("Machine labels exported successfully", { variant: "success" });
+    },
+    onError: (error) => {
+      enqueueSnackbar(error.message || "Export failed", { variant: "error" });
+    }
+  });
+};
+
 const useSnackbarMutation = (mutationFn, invalidateQueryKeys, successMessage) => {
   const queryClient = useQueryClient();
   const { enqueueSnackbar } = useSnackbar();
@@ -228,6 +271,15 @@ export const useChecksheetSubmissions = (params = {}, options = {}) =>
   useQuery({
     queryKey: CHECKSHEET_KEYS.submissions(params),
     queryFn: () => getChecksheetSubmissions(params).then((res) => res.data),
+    keepPreviousData: true,
+    staleTime: 30_000,
+    ...options
+  });
+
+export const useChecksheetMonthlyResults = (params = {}, options = {}) =>
+  useQuery({
+    queryKey: CHECKSHEET_KEYS.monthlyResults(params),
+    queryFn: () => getChecksheetMonthlyResults(params).then((res) => res.data),
     keepPreviousData: true,
     staleTime: 30_000,
     ...options
@@ -286,18 +338,19 @@ export const useApproveDailyInspectionStep = (submissionId) =>
   );
 
 export const useCreateRepairRecord = (submissionId) =>
-  useSnackbarMutation((data) => createRepairRecord(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), CHECKSHEET_KEYS.pendingRepairs], "Repair record created successfully");
+  useSnackbarMutation((data) => createRepairRecord(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "pending-repairs"]], "Repair record created successfully");
 
 export const useUpdateRepairRecord = (submissionId, recordId) =>
-  useSnackbarMutation((data) => updateRepairRecord(submissionId, recordId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), CHECKSHEET_KEYS.pendingRepairs], "Repair record updated successfully");
+  useSnackbarMutation((data) => updateRepairRecord(submissionId, recordId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "pending-repairs"]], "Repair record updated successfully");
 
 export const useDeleteRepairRecord = (submissionId) =>
-  useSnackbarMutation((recordId) => deleteRepairRecord(submissionId, recordId), [CHECKSHEET_KEYS.submissionBase(submissionId), CHECKSHEET_KEYS.pendingRepairs], "Repair record deleted successfully");
+  useSnackbarMutation((recordId) => deleteRepairRecord(submissionId, recordId), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "pending-repairs"]], "Repair record deleted successfully");
 
-export const usePendingRepairRecords = (options = {}) =>
+export const usePendingRepairRecords = (params = {}, options = {}) =>
   useQuery({
-    queryKey: CHECKSHEET_KEYS.pendingRepairs,
-    queryFn: () => getPendingRepairRecords().then((res) => res.data),
+    queryKey: CHECKSHEET_KEYS.pendingRepairs(params),
+    queryFn: () => getPendingRepairRecords(params).then((res) => res.data),
+    keepPreviousData: true,
     staleTime: 5_000,
     ...options
   });
@@ -305,7 +358,7 @@ export const usePendingRepairRecords = (options = {}) =>
 export const useApproveRepairRecord = () =>
   useSnackbarMutation(
     ({ submissionId, recordId }) => approveRepairRecord(submissionId, recordId),
-    [CHECKSHEET_KEYS.pendingRepairs, CHECKSHEET_KEYS.all],
+    [["checksheets", "pending-repairs"], CHECKSHEET_KEYS.all],
     "Repair approval recorded successfully"
   );
 
@@ -322,10 +375,10 @@ export const useCreateApprovalTemplate = () =>
   useSnackbarMutation(createApprovalTemplate, [CHECKSHEET_KEYS.all], "Approval template created successfully");
 
 export const useCreateApprovalRequest = (submissionId) =>
-  useSnackbarMutation((data) => createApprovalRequest(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], CHECKSHEET_KEYS.pendingApprovals], "Approval request created successfully");
+  useSnackbarMutation((data) => createApprovalRequest(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], ["checksheets", "pending-approvals"]], "Approval request created successfully");
 
 export const useCancelApprovalRequest = (submissionId) =>
-  useSnackbarMutation((requestId) => cancelApprovalRequest(submissionId, requestId), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], CHECKSHEET_KEYS.pendingApprovals], "Approval request cancelled successfully");
+  useSnackbarMutation((requestId) => cancelApprovalRequest(submissionId, requestId), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], ["checksheets", "pending-approvals"]], "Approval request cancelled successfully");
 
 export const useApprovalRequest = (submissionId, requestId, options = {}) =>
   useQuery({
@@ -336,10 +389,11 @@ export const useApprovalRequest = (submissionId, requestId, options = {}) =>
     ...options
   });
 
-export const usePendingApprovalRequests = (options = {}) =>
+export const usePendingApprovalRequests = (params = {}, options = {}) =>
   useQuery({
-    queryKey: CHECKSHEET_KEYS.pendingApprovals,
-    queryFn: () => getPendingApprovalRequests().then((res) => res.data),
+    queryKey: CHECKSHEET_KEYS.pendingApprovals(params),
+    queryFn: () => getPendingApprovalRequests(params).then((res) => res.data),
+    keepPreviousData: true,
     staleTime: 5_000,
     ...options
   });
@@ -347,6 +401,6 @@ export const usePendingApprovalRequests = (options = {}) =>
 export const useRespondApprovalRequest = () =>
   useSnackbarMutation(
     ({ requestId, stepId, data }) => respondApprovalRequest(requestId, stepId, data),
-    [CHECKSHEET_KEYS.pendingApprovals, CHECKSHEET_KEYS.all],
+    [["checksheets", "pending-approvals"], CHECKSHEET_KEYS.all],
     "Approval response submitted successfully"
   );

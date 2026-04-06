@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
+  Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  MenuItem,
   Paper,
   Stack,
   Table,
@@ -14,27 +17,217 @@ import {
   TableCell,
   TableContainer,
   TableHead,
+  TablePagination,
   TableRow,
+  TextField,
   Typography
 } from "@mui/material";
+import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
-import { useApproveRepairRecord, usePendingRepairRecords } from "app/hooks/useChecksheets";
+import {
+  useApproveRepairRecord,
+  useChecksheetAreas,
+  useChecksheetLines,
+  useChecksheetMasters,
+  usePendingRepairRecords
+} from "app/hooks/useChecksheets";
 
 export default function PendingRepairApprovalsPage() {
   const navigate = useNavigate();
-  const { data = [], isLoading, isError, error } = usePendingRepairRecords();
   const approveMutation = useApproveRepairRecord();
   const [target, setTarget] = useState(null);
+  const [filters, setFilters] = useState({
+    checksheetMasterId: "",
+    lineCode: "",
+    location: ""
+  });
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const { data: checksheetMasters = [] } = useChecksheetMasters();
+  const { data: lines = [] } = useChecksheetLines();
+  const { data: areas = [] } = useChecksheetAreas();
+  const selectedLine = useMemo(
+    () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
+    [filters.lineCode, lines]
+  );
+
+  const { data, isLoading, isError, error } = usePendingRepairRecords({
+    page,
+    pageSize,
+    checksheetMasterId: filters.checksheetMasterId || undefined,
+    lineCode: filters.lineCode || undefined,
+    location: filters.location || undefined
+  });
+  const records = useMemo(() => data?.items ?? [], [data?.items]);
+  const totalCount = data?.totalCount ?? 0;
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
+
+  const columns = useMemo(
+    () => [
+      {
+        id: "machine",
+        header: "Machine",
+        cell: ({ row }) => (
+          <Stack spacing={0.5}>
+            <Typography fontWeight={600}>{row.original.machineCode}</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {row.original.location} | {row.original.lineName} | {row.original.inspectionDate} Shift {row.original.shift}
+            </Typography>
+          </Stack>
+        )
+      },
+      {
+        id: "repair",
+        header: "Repair",
+        cell: ({ row }) => (
+          <Stack spacing={0.75}>
+            <Typography fontWeight={600}>{row.original.damageDescription}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {row.original.repairDescription}
+            </Typography>
+          </Stack>
+        )
+      },
+      {
+        id: "currentApproval",
+        header: "Current Approval",
+        cell: ({ row }) => (
+          <Chip
+            size="small"
+            label={row.original.nextPendingLevel?.toUpperCase?.() || "COMPLETED"}
+            color={row.original.nextPendingLevel ? "warning" : "success"}
+            variant={row.original.nextPendingLevel ? "outlined" : "filled"}
+          />
+        )
+      },
+      {
+        id: "approvedBy",
+        header: "Approved By",
+        cell: ({ row }) => (
+          <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ minWidth: 240 }}>
+            {[
+              { label: "Repaired", value: row.original.repairedByName, color: "info" },
+              { label: "ASSY", value: row.original.checkedByAssyName, color: "success" },
+              { label: "QA", value: row.original.checkedByQaName, color: "success" },
+              { label: "MTA", value: row.original.checkedByCoordinatorName, color: "success" }
+            ].map((entry) => {
+              const isDone = !!entry.value;
+
+              return (
+                <Chip
+                  key={`${row.original.repairRecordId}-${entry.label}`}
+                  size="small"
+                  color={isDone ? entry.color : "warning"}
+                  variant={isDone ? "outlined" : "filled"}
+                  label={`${entry.label}: ${isDone ? entry.value : "Pending"}`}
+                  sx={{ maxWidth: "100%" }}
+                />
+              );
+            })}
+          </Stack>
+        )
+      },
+      {
+        id: "actions",
+        header: () => <Box sx={{ textAlign: "right", pr: 1.5 }}>Actions</Box>,
+        cell: ({ row }) => (
+          <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pr: 1.5 }}>
+            <Button onClick={() => navigate(`/checksheets/submissions/${row.original.submissionId}`)}>Open</Button>
+            <Button variant="contained" onClick={() => setTarget(row.original)}>
+              Approve
+            </Button>
+          </Stack>
+        )
+      }
+    ],
+    [navigate]
+  );
+
+  const table = useReactTable({
+    data: records,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    rowCount: totalCount,
+    state: {
+      pagination: {
+        pageIndex: Math.max(0, page - 1),
+        pageSize
+      }
+    }
+  });
 
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
         <Box>
-          <Typography variant="h5" fontWeight={700}>Pending Repair Approvals</Typography>
+          <Typography variant="h5" fontWeight={700}>
+            Pending Repair Approvals
+          </Typography>
           <Typography variant="body2" color="text.secondary">
             Review repair records that are not fully approved across ASSY, QA, and MTA coordinator levels.
           </Typography>
         </Box>
+
+        <Paper variant="outlined" sx={{ p: 2.5 }}>
+          <Stack spacing={2}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              Filters
+            </Typography>
+
+            <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
+              <TextField
+                select
+                size="small"
+                label="Checksheet Master"
+                value={filters.checksheetMasterId}
+                onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
+                sx={{ minWidth: 280, maxWidth: 360 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                {checksheetMasters.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.processCode} - {item.processName} - {item.checksheetName}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <Autocomplete
+                options={lines}
+                value={selectedLine}
+                onChange={(_, option) =>
+                  setFilters((current) => ({
+                    ...current,
+                    lineCode: option?.lineCode ?? ""
+                  }))
+                }
+                isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
+                getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName}` : "")}
+                sx={{ minWidth: 220, maxWidth: 260 }}
+                renderInput={(params) => <TextField {...params} size="small" label="Line" />}
+              />
+
+              <TextField
+                select
+                size="small"
+                label="Location"
+                value={filters.location}
+                onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+                sx={{ minWidth: 180, maxWidth: 220 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                {areas.map((area) => (
+                  <MenuItem key={area.areaCode} value={area.areaCode}>
+                    {area.areaCode} - {area.areaName}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </Stack>
+        </Paper>
 
         {isLoading ? (
           <Paper variant="outlined" sx={{ p: 4 }}>
@@ -46,51 +239,73 @@ export default function PendingRepairApprovalsPage() {
           <TableContainer component={Paper} variant="outlined">
             <Table>
               <TableHead>
-                <TableRow>
-                  <TableCell>Machine</TableCell>
-                  <TableCell>Repair</TableCell>
-                  <TableCell>Current Approval</TableCell>
-                  <TableCell>Approved By</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {data.map((item) => (
-                  <TableRow key={`${item.submissionId}-${item.repairRecordId}`} hover>
-                    <TableCell>
-                      <Typography fontWeight={600}>{item.machineCode}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {item.location} | {item.lineName} | {item.inspectionDate} Shift {item.shift}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography fontWeight={600}>{item.damageDescription}</Typography>
-                      <Typography variant="body2" color="text.secondary">{item.repairDescription}</Typography>
-                    </TableCell>
-                    <TableCell>{item.nextPendingLevel?.toUpperCase?.() || "Completed"}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2">Repaired: {item.repairedByName || "-"}</Typography>
-                      <Typography variant="body2">ASSY: {item.checkedByAssyName || "-"}</Typography>
-                      <Typography variant="body2">QA: {item.checkedByQaName || "-"}</Typography>
-                      <Typography variant="body2">MTA: {item.checkedByCoordinatorName || "-"}</Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button onClick={() => navigate(`/checksheets/submissions/${item.submissionId}`)}>Open</Button>
-                        <Button variant="contained" onClick={() => setTarget(item)}>Approve</Button>
-                      </Stack>
-                    </TableCell>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id}>
+                    {headerGroup.headers.map((header, index) => {
+                      const isFirstColumn = index === 0;
+                      const isLastColumn = index === headerGroup.headers.length - 1;
+
+                      return (
+                        <TableCell
+                          key={header.id}
+                          align={isLastColumn ? "right" : "left"}
+                          sx={{
+                            pl: isFirstColumn ? 3 : 2,
+                            pr: isLastColumn ? 3 : 2
+                          }}
+                        >
+                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                        </TableCell>
+                      );
+                    })}
                   </TableRow>
                 ))}
-                {data.length === 0 && (
+              </TableHead>
+              <TableBody>
+                {table.getRowModel().rows.map((row) => (
+                  <TableRow key={row.id} hover>
+                    {row.getVisibleCells().map((cell, index) => {
+                      const isFirstColumn = index === 0;
+                      const isLastColumn = index === row.getVisibleCells().length - 1;
+
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          align={isLastColumn ? "right" : "left"}
+                          sx={{
+                            py: 2.25,
+                            pl: isFirstColumn ? 3 : 2,
+                            pr: isLastColumn ? 3 : 2,
+                            verticalAlign: "top"
+                          }}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+                {records.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
+                    <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>
                       No pending repair approvals.
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+            <TablePagination
+              component="div"
+              count={totalCount}
+              page={Math.max(0, page - 1)}
+              onPageChange={(_, nextPage) => setPage(nextPage + 1)}
+              rowsPerPage={pageSize}
+              onRowsPerPageChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+              rowsPerPageOptions={[10, 20, 50, 100]}
+            />
           </TableContainer>
         )}
       </Stack>
@@ -108,14 +323,18 @@ export default function PendingRepairApprovalsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setTarget(null)} disabled={approveMutation.isPending}>Cancel</Button>
+          <Button onClick={() => setTarget(null)} disabled={approveMutation.isPending}>
+            Cancel
+          </Button>
           <Button
             variant="contained"
             disabled={approveMutation.isPending || !target}
-            onClick={() => approveMutation.mutate(
-              { submissionId: target.submissionId, recordId: target.repairRecordId },
-              { onSuccess: () => setTarget(null) }
-            )}
+            onClick={() =>
+              approveMutation.mutate(
+                { submissionId: target.submissionId, recordId: target.repairRecordId },
+                { onSuccess: () => setTarget(null) }
+              )
+            }
           >
             {approveMutation.isPending ? "Saving..." : "Approve"}
           </Button>

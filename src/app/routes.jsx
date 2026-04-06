@@ -15,6 +15,7 @@ const RepairmanCheckersPage = Loadable(lazy(() => import("app/views/master/Repai
 const ChecksheetTemplatesPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetTemplatesPage")));
 const ChecksheetSubmissionsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionsPage")));
 const ChecksheetRepairHistoryPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetRepairHistoryPage")));
+const ChecksheetMonthlyResultsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetMonthlyResultsPage")));
 const ChecksheetSubmissionDetailPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionDetailPage")));
 const ChecksheetSubmissionMonthlyPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionMonthlyPage")));
 const PendingApprovalsPage = Loadable(lazy(() => import("app/views/checksheets/PendingApprovalsPage")));
@@ -44,6 +45,7 @@ const routes = [
       { path: "/checksheets/templates", element: <Navigate to="/master/checksheet-templates" replace /> },
       { path: "/checksheets/submissions", element: <ChecksheetSubmissionsPage /> },
       { path: "/checksheets/repairs", element: <ChecksheetRepairHistoryPage /> },
+      { path: "/checksheets/monthly-results", element: <ChecksheetMonthlyResultsPage /> },
       { path: "/checksheets/submissions/:id", element: <ChecksheetSubmissionDetailPage /> },
       { path: "/checksheets/submissions/:id/monthly", element: <ChecksheetSubmissionMonthlyPage /> },
       { path: "/approvals/pending", element: <PendingApprovalsPage /> },

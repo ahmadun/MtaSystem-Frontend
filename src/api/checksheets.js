@@ -55,14 +55,26 @@ export const getChecksheetGroups = async () => {
   return response.data;
 };
 
-export const getRepairmanCheckers = async () => {
-  const response = await apiClient.get("/checksheet-masters/repairman-checkers");
+export const getRepairmanCheckers = async (params) => {
+  const response = await apiClient.get("/checksheet-masters/repairman-checkers", { params });
   return response.data;
 };
 
 export const getChecksheetMachines = async (params) => {
   const response = await apiClient.get("/checksheet-masters/machines", { params });
   return response.data;
+};
+
+export const getChecksheetMachine = async (machineCode) => {
+  const response = await apiClient.get(`/checksheet-masters/machines/${machineCode}`);
+  return response.data;
+};
+
+export const exportChecksheetMachineLabels = async (data) => {
+  const response = await apiClient.post("/checksheet-masters/machines/export-labels", data, {
+    responseType: "blob"
+  });
+  return response;
 };
 
 export const createChecksheetLine = async (data) => {
@@ -160,6 +172,11 @@ export const getRepairHistory = async (params) => {
   return response.data;
 };
 
+export const getChecksheetMonthlyResults = async (params) => {
+  const response = await apiClient.get("/checksheet-submissions/monthly-results", { params });
+  return response.data;
+};
+
 export const getChecksheetSubmission = async (id, params) => {
   const response = await apiClient.get(`/checksheet-submissions/${id}`, { params });
   return response.data;
@@ -225,8 +242,8 @@ export const deleteRepairRecord = async (submissionId, recordId) => {
   return response.data;
 };
 
-export const getPendingRepairRecords = async () => {
-  const response = await apiClient.get("/checksheet-submissions/repair-records/pending");
+export const getPendingRepairRecords = async (params) => {
+  const response = await apiClient.get("/checksheet-submissions/repair-records/pending", { params });
   return response.data;
 };
 
@@ -265,8 +282,8 @@ export const cancelApprovalRequest = async (submissionId, requestId) => {
   return response.data;
 };
 
-export const getPendingApprovalRequests = async () => {
-  const response = await apiClient.get("/approval-requests/pending-for-me");
+export const getPendingApprovalRequests = async (params) => {
+  const response = await apiClient.get("/approval-requests/pending-for-me", { params });
   return response.data;
 };
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Checkbox,
@@ -28,6 +29,7 @@ import {
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import DownloadOutlinedIcon from "@mui/icons-material/DownloadOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { ConfirmationDialog } from "app/components";
 import {
@@ -52,10 +54,35 @@ import {
   useUpdateChecksheetLine,
   useUpdateChecksheetMachine,
   useUpdateChecksheetMaster,
+  useExportChecksheetMachineLabels,
   useUpsertChecksheetMachineModeTemplate
 } from "app/hooks/useChecksheets";
 
 const MODE_OPTIONS = ["daily", "regular"];
+
+function createRepairFormKey() {
+  return `repair-form-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createRepairForm(title = "") {
+  return {
+    formKey: createRepairFormKey(),
+    title,
+    sortOrder: 1
+  };
+}
+
+function normalizeRepairFormsForSubmit(repairForms) {
+  const normalized = (repairForms ?? [])
+    .map((form, index) => ({
+      formKey: form.formKey || createRepairFormKey(),
+      title: String(form.title || "").trim(),
+      sortOrder: index + 1
+    }))
+    .filter((form) => form.title);
+
+  return normalized.length > 0 ? normalized : [{ formKey: "repair-form-1", title: "Repair Entry", sortOrder: 1 }];
+}
 
 function PageShell({ title, description, action, children }) {
   return (
@@ -68,9 +95,9 @@ function PageShell({ title, description, action, children }) {
           </Box>
           {action}
         </Stack>
-        <Paper variant="outlined" sx={{ p: 3 }}>
+        <Box>
           {children}
-        </Paper>
+        </Box>
       </Stack>
     </Box>
   );
@@ -257,6 +284,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
     checksheetMasterId: initialData?.checksheetMasterId ?? "",
     lineCode: initialData?.lineCode ?? "",
     groupCodes: initialData?.groupCodes ?? [],
+    repairForms: initialData?.repairForms?.length ? initialData.repairForms : [createRepairForm("Repair Entry")],
     modes: initialData?.modes ?? [],
     dailyTemplateId: initialData?.modeTemplates?.find((item) => item.checksheetMode === "daily")?.templateId ?? "",
     regularTemplateId: initialData?.modeTemplates?.find((item) => item.checksheetMode === "regular")?.templateId ?? "",
@@ -269,6 +297,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
       checksheetMasterId: initialData?.checksheetMasterId ?? "",
       lineCode: initialData?.lineCode ?? "",
       groupCodes: initialData?.groupCodes ?? [],
+      repairForms: initialData?.repairForms?.length ? initialData.repairForms : [createRepairForm("Repair Entry")],
       modes: initialData?.modes ?? [],
       dailyTemplateId: initialData?.modeTemplates?.find((item) => item.checksheetMode === "daily")?.templateId ?? "",
       regularTemplateId: initialData?.modeTemplates?.find((item) => item.checksheetMode === "regular")?.templateId ?? "",
@@ -285,6 +314,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
     if (mode === "regular") return !!form.regularTemplateId;
     return false;
   });
+  const normalizedRepairForms = normalizeRepairFormsForSubmit(form.repairForms);
   const toggleMode = (modeValue) => {
     setForm((current) => ({
       ...current,
@@ -293,9 +323,30 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
         : [...current.modes, modeValue]
     }));
   };
+  const updateRepairForm = (formKey, patch) => {
+    setForm((current) => ({
+      ...current,
+      repairForms: current.repairForms.map((item) => (item.formKey === formKey ? { ...item, ...patch } : item))
+    }));
+  };
+  const addRepairForm = () => {
+    setForm((current) => ({
+      ...current,
+      repairForms: [...current.repairForms, createRepairForm("")]
+    }));
+  };
+  const removeRepairForm = (formKey) => {
+    setForm((current) => {
+      const nextRepairForms = current.repairForms.filter((item) => item.formKey !== formKey);
+      return {
+        ...current,
+        repairForms: nextRepairForms.length > 0 ? nextRepairForms : [createRepairForm("Repair Entry")]
+      };
+    });
+  };
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
       <DialogTitle>{mode === "edit" ? "Edit Checksheet Line" : "Create Checksheet Line"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
@@ -331,6 +382,39 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
           >
             {groups.map((group) => <MenuItem key={group.groupCode} value={group.groupCode}>{group.groupCode} - {group.groupName}</MenuItem>)}
           </TextField>
+          <Stack spacing={1.5}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Box>
+                <Typography variant="subtitle2">Repair Entry Forms</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Define the titled repair sections that will appear in the checksheet submission detail page.
+                </Typography>
+              </Box>
+              <Button variant="outlined" size="small" onClick={addRepairForm}>
+                Add Repair Form
+              </Button>
+            </Stack>
+            {form.repairForms.map((repairForm, index) => (
+              <Paper key={repairForm.formKey} variant="outlined" sx={{ p: 2 }}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ sm: "center" }}>
+                  <TextField
+                    label={`Repair Form ${index + 1} Title`}
+                    value={repairForm.title}
+                    onChange={(event) => updateRepairForm(repairForm.formKey, { title: event.target.value })}
+                    fullWidth
+                    helperText={`Shown as ${index + 1}. ${repairForm.title?.trim() || "Untitled repair form"}`}
+                  />
+                  <IconButton
+                    color="error"
+                    onClick={() => removeRepairForm(repairForm.formKey)}
+                    disabled={form.repairForms.length === 1}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
           <Box>
             <Typography variant="subtitle2" sx={{ mb: 1 }}>Modes</Typography>
             <FormGroup row sx={{ gap: 1 }}>
@@ -377,8 +461,8 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
         <Button onClick={onClose} disabled={isPending}>Cancel</Button>
         <Button
           variant="contained"
-          onClick={() => onSubmit(form)}
-          disabled={isPending || !form.machineCode.trim() || !form.checksheetMasterId || !form.lineCode || form.groupCodes.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
+          onClick={() => onSubmit({ ...form, repairForms: normalizedRepairForms })}
+          disabled={isPending || !form.machineCode.trim() || !form.checksheetMasterId || !form.lineCode || form.groupCodes.length === 0 || normalizedRepairForms.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
         >
           {isPending ? "Saving..." : "Save"}
         </Button>
@@ -913,6 +997,7 @@ export function ChecksheetMastersPage() {
 export function ChecksheetLinesPage() {
   const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [selectedMachineCodes, setSelectedMachineCodes] = useState([]);
   const [filters, setFilters] = useState({
     checksheetMasterId: "",
     lineCode: "",
@@ -934,18 +1019,76 @@ export function ChecksheetLinesPage() {
   const { data: templatesPage } = useChecksheetTemplates({ page: 1, pageSize: 200, isActive: true });
   const templates = useMemo(() => templatesPage?.items ?? [], [templatesPage?.items]);
   const machines = useMemo(() => machinesPage?.items ?? [], [machinesPage?.items]);
+  const selectedLine = useMemo(
+    () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
+    [filters.lineCode, lines]
+  );
   const totalCount = machinesPage?.totalCount ?? 0;
   const createMachine = useCreateChecksheetMachine();
   const updateMachine = useUpdateChecksheetMachine(dialogState.data?.machineCode);
   const upsertModeTemplate = useUpsertChecksheetMachineModeTemplate();
   const deleteMachine = useDeleteChecksheetMachine();
+  const exportMachineLabels = useExportChecksheetMachineLabels();
 
   useEffect(() => {
     setPage(0);
   }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
 
+  const currentPageMachineCodes = useMemo(
+    () => machines.map((machine) => machine.machineCode),
+    [machines]
+  );
+  const selectedMachineCodeSet = useMemo(
+    () => new Set(selectedMachineCodes),
+    [selectedMachineCodes]
+  );
+  const allCurrentPageSelected =
+    currentPageMachineCodes.length > 0 && currentPageMachineCodes.every((machineCode) => selectedMachineCodeSet.has(machineCode));
+  const someCurrentPageSelected =
+    currentPageMachineCodes.some((machineCode) => selectedMachineCodeSet.has(machineCode)) && !allCurrentPageSelected;
+
+  const toggleMachineSelection = (machineCode) => {
+    setSelectedMachineCodes((current) =>
+      current.includes(machineCode)
+        ? current.filter((value) => value !== machineCode)
+        : [...current, machineCode]
+    );
+  };
+
+  const toggleCurrentPageSelection = () => {
+    setSelectedMachineCodes((current) => {
+      const currentSet = new Set(current);
+      if (allCurrentPageSelected) {
+        currentPageMachineCodes.forEach((machineCode) => currentSet.delete(machineCode));
+      } else {
+        currentPageMachineCodes.forEach((machineCode) => currentSet.add(machineCode));
+      }
+      return Array.from(currentSet);
+    });
+  };
+
   const columns = useMemo(
     () => [
+      {
+        id: "select",
+        header: () => (
+          <Checkbox
+            size="small"
+            checked={allCurrentPageSelected}
+            indeterminate={someCurrentPageSelected}
+            onChange={toggleCurrentPageSelection}
+            inputProps={{ "aria-label": "select all machines on current page" }}
+          />
+        ),
+        cell: ({ row }) => (
+          <Checkbox
+            size="small"
+            checked={selectedMachineCodeSet.has(row.original.machineCode)}
+            onChange={() => toggleMachineSelection(row.original.machineCode)}
+            inputProps={{ "aria-label": `select ${row.original.machineCode}` }}
+          />
+        )
+      },
       {
         accessorKey: "machineCode",
         header: "Machine"
@@ -963,17 +1106,26 @@ export function ChecksheetLinesPage() {
       {
         id: "modes",
         header: "Modes",
-        cell: ({ row }) => row.original.modes?.join(", ") || "-"
+        cell: ({ row }) => (row.original.modes?.join(", ")).toUpperCase() || "-"
       },
       {
         id: "templates",
         header: "Templates",
-        cell: ({ row }) => (row.original.modeTemplates ?? []).map((item) => `${item.checksheetMode}: ${item.templateName || "-"}`).join(" | ") || "-"
+        cell: ({ row }) => (row.original.modeTemplates ?? []).map((item) => `${item.checksheetMode?.toUpperCase()}: ${item.templateName || "-"}`).join(" | ") || "-"
       },
       {
         id: "groups",
-        header: "Groups",
-        cell: ({ row }) => row.original.groupCodes?.join(", ") || "-"
+        header: () => <Box sx={{ textAlign: "center" }}>Groups</Box>,
+        cell: ({ row }) => (
+          <Box sx={{ textAlign: "center" }}>
+            {row.original.groupCodes?.join(", ") || "-"}
+          </Box>
+        )
+      },
+      {
+        id: "repairForms",
+        header: "Repair Forms",
+        cell: ({ row }) => (row.original.repairForms ?? []).map((item) => `${item.sortOrder}. ${item.title}`).join(" | ") || "-"
       },
       {
         id: "status",
@@ -995,7 +1147,7 @@ export function ChecksheetLinesPage() {
         )
       }
     ],
-    []
+    [allCurrentPageSelected, currentPageMachineCodes, selectedMachineCodeSet, someCurrentPageSelected]
   );
 
   const table = useReactTable({
@@ -1012,51 +1164,89 @@ export function ChecksheetLinesPage() {
     <PageShell
       title="Checksheet Line"
       description="Map machine to checksheet master, line master, and group, then assign mode and template."
-      action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Checksheet Line</Button>}
+      action={(
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Button
+            variant="outlined"
+            startIcon={<DownloadOutlinedIcon />}
+            disabled={selectedMachineCodes.length === 0 || exportMachineLabels.isPending}
+            onClick={() => exportMachineLabels.mutate({ machineCodes: selectedMachineCodes })}
+          >
+            {exportMachineLabels.isPending ? "Exporting..." : `Export Selected Labels${selectedMachineCodes.length ? ` (${selectedMachineCodes.length})` : ""}`}
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Checksheet Line</Button>
+        </Stack>
+      )}
     >
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 3 }}>
-        <TextField
-          select
-          fullWidth
-          label="Checksheet Master"
-          value={filters.checksheetMasterId}
-          onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
-        >
-          <MenuItem value="">All</MenuItem>
-          {checksheetMasters.map((item) => (
-            <MenuItem key={item.id} value={item.id}>
-              {item.processCode} - {item.processName} - {item.checksheetName}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          fullWidth
-          label="Line"
-          value={filters.lineCode}
-          onChange={(event) => setFilters((current) => ({ ...current, lineCode: event.target.value }))}
-        >
-          <MenuItem value="">All</MenuItem>
-          {lines.map((line) => (
-            <MenuItem key={line.lineCode} value={line.lineCode}>
-              {line.lineCode} - {line.lineName}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          fullWidth
-          label="Location"
-          value={filters.location}
-          onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
-        >
-          <MenuItem value="">All</MenuItem>
-          {areas.map((area) => (
-            <MenuItem key={area.areaCode} value={area.areaCode}>
-              {area.areaCode} - {area.areaName}
-            </MenuItem>
-          ))}
-        </TextField>
+      <Paper variant="outlined" sx={{ p: 2.5, mb: 3 }}>
+        <Stack spacing={2}>
+          <Typography variant="subtitle2" fontWeight={700}>
+            Filters
+          </Typography>
+
+          <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
+            <TextField
+              select
+              size="small"
+              label="Checksheet Master"
+              value={filters.checksheetMasterId}
+              onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
+              sx={{ minWidth: 280, maxWidth: 360 }}
+            >
+              <MenuItem value="">All</MenuItem>
+              {checksheetMasters.map((item) => (
+                <MenuItem key={item.id} value={item.id}>
+                  {item.processCode} - {item.processName} - {item.checksheetName}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <Autocomplete
+              options={lines}
+              value={selectedLine}
+              onChange={(_, option) =>
+                setFilters((current) => ({
+                  ...current,
+                  lineCode: option?.lineCode ?? ""
+                }))
+              }
+              isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
+              getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName}` : "")}
+              sx={{ minWidth: 220, maxWidth: 260 }}
+              renderInput={(params) => <TextField {...params} size="small" label="Line" />}
+            />
+
+            <TextField
+              select
+              size="small"
+              label="Location"
+              value={filters.location}
+              onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+              sx={{ minWidth: 180, maxWidth: 220 }}
+            >
+              <MenuItem value="">All</MenuItem>
+              {areas.map((area) => (
+                <MenuItem key={area.areaCode} value={area.areaCode}>
+                  {area.areaCode} - {area.areaName}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </Stack>
+      </Paper>
+
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", md: "center" }}
+        spacing={1}
+        sx={{ mb: 2 }}
+      >
+        {selectedMachineCodes.length > 0 && (
+          <Button size="small" onClick={() => setSelectedMachineCodes([])}>
+            Clear Selection
+          </Button>
+        )}
       </Stack>
 
       <TableContainer component={Paper} variant="outlined">
@@ -1067,11 +1257,12 @@ export function ChecksheetLinesPage() {
                 {headerGroup.headers.map((header, index) => {
                   const isFirstColumn = index === 0;
                   const isLastColumn = index === headerGroup.headers.length - 1;
+                  const isCenterColumn = header.column.id === "groups";
 
                   return (
                     <TableCell
                       key={header.id}
-                      align={isLastColumn ? "right" : "left"}
+                      align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                       sx={{
                         pl: isFirstColumn ? 3 : 2,
                         pr: isLastColumn ? 3 : 2
@@ -1097,11 +1288,12 @@ export function ChecksheetLinesPage() {
                   {row.getVisibleCells().map((cell, index) => {
                     const isFirstColumn = index === 0;
                     const isLastColumn = index === row.getVisibleCells().length - 1;
+                    const isCenterColumn = cell.column.id === "groups";
 
                     return (
                       <TableCell
                         key={cell.id}
-                        align={isLastColumn ? "right" : "left"}
+                        align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                         sx={{
                           pl: isFirstColumn ? 3 : 2,
                           pr: isLastColumn ? 3 : 2
@@ -1152,6 +1344,7 @@ export function ChecksheetLinesPage() {
             checksheetMasterId: payload.checksheetMasterId,
             lineCode: payload.lineCode,
             groupCodes: payload.groupCodes,
+            repairForms: payload.repairForms,
             modes: payload.modes,
             isActive: payload.isActive
           };

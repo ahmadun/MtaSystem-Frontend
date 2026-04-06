@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -54,6 +55,10 @@ export default function ChecksheetRepairHistoryPage() {
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
   const { data: areas = [] } = useChecksheetAreas();
+  const selectedLine = useMemo(
+    () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
+    [filters.lineCode, lines]
+  );
   const { data, isLoading, isError, error } = useRepairHistory({
     page,
     pageSize,
@@ -212,64 +217,75 @@ export default function ChecksheetRepairHistoryPage() {
           </Typography>
         </Box>
 
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-          <TextField
-            select
-            fullWidth
-            label="Checksheet Master"
-            value={filters.checksheetMasterId}
-            onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
-          >
-            <MenuItem value="">All</MenuItem>
-            {checksheetMasters.map((item) => (
-              <MenuItem key={item.id} value={item.id}>
-                {item.processCode} - {item.processName} - {item.checksheetName}
-              </MenuItem>
-            ))}
-          </TextField>
+        <Paper variant="outlined" sx={{ p: 2.5 }}>
+          <Stack spacing={2}>
+            <Typography variant="subtitle2" fontWeight={700}>
+              Filters
+            </Typography>
 
-          <TextField
-            select
-            fullWidth
-            label="Line"
-            value={filters.lineCode}
-            onChange={(event) => setFilters((current) => ({ ...current, lineCode: event.target.value }))}
-          >
-            <MenuItem value="">All</MenuItem>
-            {lines.map((line) => (
-              <MenuItem key={line.lineCode} value={line.lineCode}>
-                {line.lineCode} - {line.lineName}
-              </MenuItem>
-            ))}
-          </TextField>
+            <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
+              <TextField
+                select
+                size="small"
+                label="Checksheet Master"
+                value={filters.checksheetMasterId}
+                onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
+                sx={{ minWidth: 280, maxWidth: 360 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                {checksheetMasters.map((item) => (
+                  <MenuItem key={item.id} value={item.id}>
+                    {item.processCode} - {item.processName} - {item.checksheetName}
+                  </MenuItem>
+                ))}
+              </TextField>
 
-          <TextField
-            select
-            fullWidth
-            label="Location"
-            value={filters.location}
-            onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
-          >
-            <MenuItem value="">All</MenuItem>
-            {areas.map((area) => (
-              <MenuItem key={area.areaCode} value={area.areaCode}>
-                {area.areaCode} - {area.areaName}
-              </MenuItem>
-            ))}
-          </TextField>
+              <Autocomplete
+                options={lines}
+                value={selectedLine}
+                onChange={(_, option) =>
+                  setFilters((current) => ({
+                    ...current,
+                    lineCode: option?.lineCode ?? ""
+                  }))
+                }
+                isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
+                getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName}` : "")}
+                sx={{ minWidth: 220, maxWidth: 260 }}
+                renderInput={(params) => <TextField {...params} size="small" label="Line" />}
+              />
 
-          <TextField
-            select
-            fullWidth
-            label="Approval Status"
-            value={filters.approvalStatus}
-            onChange={(event) => setFilters((current) => ({ ...current, approvalStatus: event.target.value }))}
-          >
-            {APPROVAL_STATUS_OPTIONS.map((option) => (
-              <MenuItem key={option.label} value={option.value}>{option.label}</MenuItem>
-            ))}
-          </TextField>
-        </Stack>
+              <TextField
+                select
+                size="small"
+                label="Location"
+                value={filters.location}
+                onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+                sx={{ minWidth: 180, maxWidth: 220 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                {areas.map((area) => (
+                  <MenuItem key={area.areaCode} value={area.areaCode}>
+                    {area.areaCode} - {area.areaName}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                size="small"
+                label="Approval Status"
+                value={filters.approvalStatus}
+                onChange={(event) => setFilters((current) => ({ ...current, approvalStatus: event.target.value }))}
+                sx={{ minWidth: 180, maxWidth: 220 }}
+              >
+                {APPROVAL_STATUS_OPTIONS.map((option) => (
+                  <MenuItem key={option.label} value={option.value}>{option.label}</MenuItem>
+                ))}
+              </TextField>
+            </Stack>
+          </Stack>
+        </Paper>
 
         {isLoading ? (
           <Paper variant="outlined" sx={{ p: 4 }}>

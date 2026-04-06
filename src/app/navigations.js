@@ -12,6 +12,11 @@ const navigations = [
         name: "Repair History",
         iconText: "RH",
         path: "/checksheets/repairs"
+      },
+      {
+        name: "Monthly Results",
+        iconText: "MR",
+        path: "/checksheets/monthly-results"
       }
     ]
   },

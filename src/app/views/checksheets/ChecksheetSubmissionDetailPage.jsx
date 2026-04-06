@@ -5,6 +5,10 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   IconButton,
   MenuItem,
@@ -25,11 +29,14 @@ import {
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
+import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { ConfirmationDialog } from "app/components";
 import useAuth from "app/hooks/useAuth";
 import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
+  useApprovalRequest,
   useApprovalTemplates,
   useChecksheetMachines,
   useChecksheetSubmission,
@@ -39,24 +46,38 @@ import {
   useDeleteInspectionRecord,
   useDeleteRepairRecord,
   useCreateApprovalRequest,
+  useCancelApprovalRequest,
   useDeleteChecksheetSubmission,
   useUpdateChecksheetSubmission,
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
 const FIXED_OPTIONS = ["OK", "NG", "FIX"];
-
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
 }
 
 function createEmptyRepairForm() {
   return {
+    repairFormKey: "",
     repairDate: "",
     damageDescription: "",
     repairDescription: "",
     note: ""
   };
+}
+
+function createRepairFormsState(repairForms) {
+  return (repairForms ?? []).reduce((accumulator, repairForm) => {
+    accumulator[repairForm.formKey] = {
+      repairFormKey: repairForm.formKey,
+      repairDate: "",
+      damageDescription: "",
+      repairDescription: "",
+      note: ""
+    };
+    return accumulator;
+  }, {});
 }
 
 function createInitialEntryValues(items) {
@@ -100,6 +121,43 @@ function parseYearMonth(dateString) {
   return { year, month };
 }
 
+function dateValueToDate(dateValue) {
+  if (!dateValue) {
+    return null;
+  }
+
+  const [year, month, day] = String(dateValue).split("-").map(Number);
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return new Date(year, month - 1, day);
+}
+
+function dateToDateValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatMonthPeriod(dateValue) {
+  if (!dateValue) {
+    return "-";
+  }
+
+  const parsedDate = new Date(`${String(dateValue).slice(0, 7)}-01T00:00:00`);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return String(dateValue).slice(0, 7) || "-";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    year: "numeric"
+  }).format(parsedDate);
+}
+
 function normalizeChecksheetMode(mode, fallback = "") {
   const normalizedMode = String(mode || "").toLowerCase().trim();
 
@@ -118,6 +176,10 @@ function mapRecordTypeToUi(recordType) {
   return normalizeChecksheetMode(recordType, "daily");
 }
 
+function normalizeInspectionEntryMode(value) {
+  return String(value || "").trim().toLowerCase() === "board" ? "board" : "date";
+}
+
 function getLatestRecordForMode(records, mode) {
   const normalizedMode = normalizeChecksheetMode(mode);
   return [...(records ?? [])]
@@ -127,6 +189,54 @@ function getLatestRecordForMode(records, mode) {
       const rightDate = right.inspectionDate ? new Date(right.inspectionDate).getTime() : 0;
       return rightDate - leftDate || right.id - left.id;
     })[0] ?? null;
+}
+
+function getRecordForModeAndDate(records, mode, inspectionDate) {
+  if (!inspectionDate) {
+    return null;
+  }
+
+  const normalizedMode = normalizeChecksheetMode(mode);
+  return [...(records ?? [])]
+    .filter((record) =>
+      mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      String(record.inspectionDate ?? "") === String(inspectionDate)
+    )
+    .sort((left, right) => right.id - left.id)[0] ?? null;
+}
+
+function normalizeBoardCode(value) {
+  return String(value ?? "").trim().toUpperCase();
+}
+
+function buildInspectionNote(note, boardCode) {
+  const cleanNote = String(note ?? "").trim();
+  return cleanNote || null;
+}
+
+function getRecordBoardCode(record) {
+  return normalizeBoardCode(
+    record?.boardCode ??
+    record?.boardNumber ??
+    record?.boardNo ??
+    record?.sampleCode ??
+    record?.sampleNumber
+  );
+}
+
+function getRecordForModeAndBoardCode(records, mode, boardCode) {
+  const normalizedBoardCode = normalizeBoardCode(boardCode);
+  if (!normalizedBoardCode) {
+    return null;
+  }
+
+  const normalizedMode = normalizeChecksheetMode(mode);
+  return [...(records ?? [])]
+    .filter((record) =>
+      mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      getRecordBoardCode(record) === normalizedBoardCode
+    )
+    .sort((left, right) => right.id - left.id)[0] ?? null;
 }
 
 function toTitleCase(value) {
@@ -140,6 +250,20 @@ function toTitleCase(value) {
 
 function getApproverDisplayName(person) {
   return person?.fullName || person?.approvedByFullName || person?.username || person?.approvedByUsername || "-";
+}
+
+function stepIncludesCurrentUser(step, userId) {
+  const normalizedUserId = Number(userId);
+  if (!normalizedUserId) {
+    return false;
+  }
+
+  const singleApproverId = Number(step?.approver?.userId);
+  if (singleApproverId && singleApproverId === normalizedUserId) {
+    return true;
+  }
+
+  return (step?.approvers ?? []).some((approver) => Number(approver?.userId) === normalizedUserId);
 }
 
 function parseColumnOptions(optionsJson) {
@@ -228,30 +352,61 @@ export default function ChecksheetSubmissionDetailPage() {
   const deleteInspectionMutation = useDeleteInspectionRecord(submissionId);
   const deleteRepairMutation = useDeleteRepairRecord(submissionId);
   const createApprovalMutation = useCreateApprovalRequest(submissionId);
+  const cancelApprovalMutation = useCancelApprovalRequest(submissionId);
   const approveDailyStepMutation = useApproveDailyInspectionStep(submissionId);
   const [approvalTemplateId, setApprovalTemplateId] = useState("");
   const [inspectionDate, setInspectionDate] = useState("");
+  const [boardCode, setBoardCode] = useState("");
   const [inspectionShift, setInspectionShift] = useState("1");
   const [inspectionNote, setInspectionNote] = useState("");
   const [entryValues, setEntryValues] = useState({});
-  const [repairForm, setRepairForm] = useState(createEmptyRepairForm());
+  const availableRepairForms = useMemo(
+    () => (submission?.availableRepairForms?.length ? submission.availableRepairForms : [{ formKey: "repair-form-1", title: "Repair Entry", sortOrder: 1 }]),
+    [submission?.availableRepairForms]
+  );
+  const [repairFormsState, setRepairFormsState] = useState({});
+  const [activeRepairDialogKey, setActiveRepairDialogKey] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [cancelSubmissionOpen, setCancelSubmissionOpen] = useState(false);
 
   const inspectionRecords = submission?.inspectionRecords ?? [];
-  const existingInspectionRecord = useMemo(
+  const latestInspectionRecord = useMemo(
     () => getLatestRecordForMode(inspectionRecords, checksheetMode),
     [inspectionRecords, checksheetMode]
   );
-  const updateInspectionMutation = useUpdateInspectionRecord(submissionId, existingInspectionRecord?.id);
+  const inspectionEntryMode = useMemo(
+    () => normalizeInspectionEntryMode(submission?.template?.inspectionEntryMode),
+    [submission?.template?.inspectionEntryMode]
+  );
+  const selectedInspectionRecord = useMemo(
+    () => {
+      if (inspectionEntryMode === "board") {
+        return getRecordForModeAndBoardCode(inspectionRecords, checksheetMode, boardCode);
+      }
+
+      return getRecordForModeAndDate(inspectionRecords, checksheetMode, inspectionDate);
+    },
+    [boardCode, checksheetMode, inspectionDate, inspectionEntryMode, inspectionRecords]
+  );
+  const updateInspectionMutation = useUpdateInspectionRecord(submissionId, selectedInspectionRecord?.id);
   const monthlyParams = useMemo(
     () => {
-      const base = parseYearMonth(existingInspectionRecord?.inspectionDate ?? submission?.inspectionDate);
+      const base = parseYearMonth(
+        selectedInspectionRecord?.inspectionDate ||
+        inspectionDate ||
+        latestInspectionRecord?.inspectionDate ||
+        submission?.inspectionDate
+      );
       return base ? { ...base, checksheetMode } : null;
     },
-    [checksheetMode, existingInspectionRecord?.inspectionDate, submission?.inspectionDate]
+    [checksheetMode, inspectionDate, latestInspectionRecord?.inspectionDate, selectedInspectionRecord?.inspectionDate, submission?.inspectionDate]
   );
   const { data: monthlyView } = useChecksheetSubmissionMonthlyView(submissionId, monthlyParams, {
     enabled: !!submissionId && !!monthlyParams?.year && !!monthlyParams?.month
+  });
+  const currentApprovalRequestId = submission?.currentApprovalRequestId ?? null;
+  const { data: currentApprovalRequest } = useApprovalRequest(submissionId, currentApprovalRequestId, {
+    enabled: !!submissionId && !!currentApprovalRequestId && !!user?.id
   });
   const templateColumns = useMemo(() => {
     if ((submission?.template?.columns?.length ?? 0) > 0) {
@@ -273,8 +428,19 @@ export default function ChecksheetSubmissionDetailPage() {
     return submission?.template?.items ?? [];
   }, [submission?.template?.items]);
   const rowSpanMap = useMemo(() => buildRowSpanMap(templateItems, templateColumns), [templateItems, templateColumns]);
-  const isDraft = submission?.status === "draft";
   const isOwner = Number(user?.id ?? 0) === Number(submission?.createdByUserId ?? 0);
+  const isDraft = submission?.status === "draft";
+  const hasRespondedToCurrentApprovalRequest = useMemo(
+    () =>
+      (currentApprovalRequest?.steps ?? []).some((step) =>
+        (step.responses ?? []).some((response) => Number(response.userId) === Number(user?.id ?? 0))
+      ),
+    [currentApprovalRequest?.steps, user?.id]
+  );
+  const canCancelSubmission =
+    !!currentApprovalRequestId &&
+    ["submitted", "approved", "rejected"].includes(submission?.status) &&
+    (isOwner || hasRespondedToCurrentApprovalRequest);
   const machines = useMemo(() => machinesPage?.items ?? [], [machinesPage?.items]);
   const currentMachine = machines.find((item) => item.machineCode === submission?.machineCode);
   const machineModes = useMemo(() => {
@@ -282,10 +448,9 @@ export default function ChecksheetSubmissionDetailPage() {
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
   }, [currentMachine?.modes, submission?.checksheetMode]);
   const isInspectionMutationPending = createInspectionMutation.isPending || updateInspectionMutation.isPending || approveDailyStepMutation.isPending;
-  const currentRecordDay = existingInspectionRecord?.inspectionDate ? Number(String(existingInspectionRecord.inspectionDate).slice(8, 10)) : null;
   const currentDaySummary = useMemo(
-    () => (currentRecordDay ? monthlyView?.daySummaries?.find((entry) => entry.day === currentRecordDay) ?? null : null),
-    [monthlyView?.daySummaries, currentRecordDay]
+    () => (selectedInspectionRecord?.id ? monthlyView?.daySummaries?.find((entry) => entry.recordId === selectedInspectionRecord.id) ?? null : null),
+    [monthlyView?.daySummaries, selectedInspectionRecord?.id]
   );
   const approvalSteps = useMemo(
     () =>
@@ -304,21 +469,21 @@ export default function ChecksheetSubmissionDetailPage() {
   );
   const recordValueMap = useMemo(() => {
     const map = new Map();
-    (existingInspectionRecord?.values ?? []).forEach((value) => {
+    (selectedInspectionRecord?.values ?? []).forEach((value) => {
       map.set(value.templateItemId, {
         resultValue: value.resultValue ?? "",
         remark: value.remark ?? ""
       });
     });
     return map;
-  }, [existingInspectionRecord?.values]);
+  }, [selectedInspectionRecord?.values]);
   const templateItemIds = useMemo(() => templateItems.map((item) => item.id ?? item.templateItemId).join(","), [templateItems]);
   const inspectionValueSignature = useMemo(
     () =>
-      (existingInspectionRecord?.values ?? [])
+      (selectedInspectionRecord?.values ?? [])
         .map((value) => `${value.templateItemId}:${value.resultValue ?? ""}:${value.remark ?? ""}`)
         .join("|"),
-    [existingInspectionRecord?.values]
+    [selectedInspectionRecord?.values]
   );
 
   useEffect(() => {
@@ -328,26 +493,59 @@ export default function ChecksheetSubmissionDetailPage() {
   }, [baseSubmission?.checksheetMode, selectedMode]);
 
   useEffect(() => {
-    setInspectionDate(existingInspectionRecord?.inspectionDate ?? submission?.inspectionDate ?? "");
-    setInspectionShift(existingInspectionRecord?.shift ?? submission?.shift ?? "1");
-    setInspectionNote(existingInspectionRecord?.note ?? "");
-    setEntryValues(createEntryValuesFromRecord(templateItems, existingInspectionRecord));
+    if (inspectionEntryMode === "board") {
+      setBoardCode(getRecordBoardCode(latestInspectionRecord) || "");
+      return;
+    }
+
+    setBoardCode("");
+    setInspectionDate(latestInspectionRecord?.inspectionDate ?? submission?.inspectionDate ?? "");
+  }, [checksheetMode, inspectionEntryMode, latestInspectionRecord?.id, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]);
+
+  useEffect(() => {
+    setInspectionShift(selectedInspectionRecord?.shift ?? submission?.shift ?? "1");
+    setInspectionNote(selectedInspectionRecord?.note ?? "");
+    setEntryValues(
+      createEntryValuesFromRecord(
+        templateItems,
+        selectedInspectionRecord
+      )
+    );
   }, [
-    existingInspectionRecord?.id,
-    existingInspectionRecord?.inspectionDate,
-    existingInspectionRecord?.shift,
-    existingInspectionRecord?.note,
-    existingInspectionRecord?.updatedAt,
+    selectedInspectionRecord?.id,
+    selectedInspectionRecord?.inspectionDate,
+    selectedInspectionRecord?.shift,
+    selectedInspectionRecord?.note,
+    selectedInspectionRecord?.updatedAt,
+    inspectionDate,
+    boardCode,
     inspectionValueSignature,
-    submission?.inspectionDate,
     submission?.shift,
     templateItemIds
   ]);
+
+  useEffect(() => {
+    setRepairFormsState(createRepairFormsState(availableRepairForms));
+  }, [availableRepairForms]);
 
   const hasAnyInspectionValue = useMemo(
     () => Object.values(entryValues).some((value) => value.resultValue?.trim() || value.remark?.trim()),
     [entryValues]
   );
+  const activeRepairFormDefinition = useMemo(
+    () => availableRepairForms.find((repairForm) => repairForm.formKey === activeRepairDialogKey) ?? null,
+    [activeRepairDialogKey, availableRepairForms]
+  );
+  const repairRecordsByFormKey = useMemo(() => {
+    return (submission?.repairRecords ?? []).reduce((accumulator, record) => {
+      const key = record.repairFormKey || "repair-form-1";
+      if (!accumulator[key]) {
+        accumulator[key] = [];
+      }
+      accumulator[key].push(record);
+      return accumulator;
+    }, {});
+  }, [submission?.repairRecords]);
 
   if (isBaseLoading || isLoading) {
     return <Box sx={{ p: 3 }}><Typography color="text.secondary">Loading checksheet...</Typography></Box>;
@@ -379,11 +577,15 @@ export default function ChecksheetSubmissionDetailPage() {
   };
 
   const handleSaveInspectionRecord = () => {
+    const resolvedInspectionDate = inspectionEntryMode === "board"
+      ? selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null
+      : inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null;
     const payload = {
       recordType: checksheetMode,
-      inspectionDate: inspectionDate || null,
+      inspectionDate: resolvedInspectionDate,
+      boardCode: inspectionEntryMode === "board" ? normalizeBoardCode(boardCode) || null : null,
       shift: inspectionShift || null,
-      note: inspectionNote.trim() || null,
+      note: buildInspectionNote(inspectionNote, boardCode),
       values: templateItems
         .map((item) => ({
           templateItemId: item.id,
@@ -393,28 +595,58 @@ export default function ChecksheetSubmissionDetailPage() {
         .filter((value) => value.resultValue?.trim() || value.remark?.trim())
     };
 
-    const mutation = existingInspectionRecord ? updateInspectionMutation : createInspectionMutation;
+    const mutation = selectedInspectionRecord ? updateInspectionMutation : createInspectionMutation;
     mutation.mutate(payload);
   };
 
-  const handleSaveRepairRecord = () => {
+  const updateRepairFormValue = (repairFormKey, patch) => {
+    setRepairFormsState((current) => ({
+      ...current,
+      [repairFormKey]: {
+        ...(current[repairFormKey] ?? createEmptyRepairForm()),
+        repairFormKey,
+        ...patch
+      }
+    }));
+  };
+
+  const handleSaveRepairRecord = (repairFormKey) => {
+    const currentRepairForm = repairFormsState[repairFormKey] ?? createEmptyRepairForm();
     createRepairMutation.mutate(
       {
-        repairDate: repairForm.repairDate || null,
-        damageDescription: repairForm.damageDescription.trim(),
-        repairDescription: repairForm.repairDescription.trim(),
-        note: repairForm.note.trim() || null
+        repairFormKey,
+        repairDate: currentRepairForm.repairDate || null,
+        damageDescription: currentRepairForm.damageDescription.trim(),
+        repairDescription: currentRepairForm.repairDescription.trim(),
+        note: currentRepairForm.note.trim() || null
       },
       {
-        onSuccess: () => setRepairForm(createEmptyRepairForm())
+        onSuccess: () => {
+          setRepairFormsState((current) => ({
+            ...current,
+            [repairFormKey]: {
+              repairFormKey,
+              ...createEmptyRepairForm()
+            }
+          }));
+          setActiveRepairDialogKey((current) => (current === repairFormKey ? "" : current));
+        }
       }
     );
+  };
+
+  const handleCloseRepairDialog = () => {
+    if (createRepairMutation.isPending) {
+      return;
+    }
+
+    setActiveRepairDialogKey("");
   };
 
   const canApproveInspectionStep = (step) => {
     if (!currentDaySummary?.recordId) return false;
     if (!user?.id) return false;
-    if (step.approver?.userId !== user.id) return false;
+    if (!stepIncludesCurrentUser(step, user.id)) return false;
 
     const alreadyApproved = currentDaySummary.approvals?.some((approval) => approval.stepId === step.id);
     if (alreadyApproved) return false;
@@ -425,8 +657,9 @@ export default function ChecksheetSubmissionDetailPage() {
   };
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Stack spacing={3}>
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <Box sx={{ p: 3 }}>
+        <Stack spacing={3}>
         <Paper variant="outlined" sx={{ p: 3 }}>
           <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" spacing={2}>
             <Box>
@@ -445,7 +678,7 @@ export default function ChecksheetSubmissionDetailPage() {
           </Stack>
 
           <Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ mt: 2 }} flexWrap="wrap">
-            <Typography variant="body2"><strong>Date:</strong> {submission.inspectionDate}</Typography>
+            <Typography variant="body2"><strong>Month Period:</strong> {formatMonthPeriod(submission.inspectionDate)}</Typography>
             <Typography variant="body2"><strong>Shift:</strong> {submission.shift}</Typography>
             <Typography variant="body2"><strong>Group:</strong> {submission.groupCodes?.join(", ") || "-"}</Typography>
             <Typography variant="body2"><strong>Template:</strong> {submission.template?.name || "-"}</Typography>
@@ -544,19 +777,35 @@ export default function ChecksheetSubmissionDetailPage() {
               <Typography variant="h6">Inspection Entry</Typography>
             </Box>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ minWidth: { md: 320 } }}>
-              <TextField
-                label="Inspection Date"
-                type="date"
-                value={inspectionDate}
-                onChange={(event) => setInspectionDate(event.target.value)}
-                InputLabelProps={{ shrink: true }}
-                fullWidth
-              />
+              {inspectionEntryMode === "board" ? (
+                <TextField
+                  label="Board Code / Number"
+                  value={boardCode}
+                  onChange={(event) => setBoardCode(normalizeBoardCode(event.target.value))}
+                  placeholder="A1"
+                  size="small"
+                  fullWidth
+                />
+              ) : (
+                <DatePicker
+                  label="Inspection Date"
+                  value={dateValueToDate(inspectionDate)}
+                  onChange={(value) => setInspectionDate(dateToDateValue(value))}
+                  format="yyyy-MM-dd"
+                  slotProps={{
+                    textField: {
+                      size: "small",
+                      fullWidth: true
+                    }
+                  }}
+                />
+              )}
               <TextField
                 select
                 label="Shift"
                 value={inspectionShift}
                 onChange={(event) => setInspectionShift(event.target.value)}
+                size="small"
                 fullWidth
               >
                 {["1", "2", "3"].map((shift) => (
@@ -686,12 +935,12 @@ export default function ChecksheetSubmissionDetailPage() {
           </Box>
 
           <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end" spacing={2} sx={{ mt: 2 }}>
-            {isDraft && existingInspectionRecord && (
+            {isDraft && selectedInspectionRecord && (
               <Button
                 color="error"
                 variant="outlined"
                 disabled={isInspectionMutationPending || deleteInspectionMutation.isPending}
-                onClick={() => setDeleteTarget({ type: "inspection", id: existingInspectionRecord.id })}
+                onClick={() => setDeleteTarget({ type: "inspection", id: selectedInspectionRecord.id })}
               >
                 Delete Inspection Entry
               </Button>
@@ -701,7 +950,7 @@ export default function ChecksheetSubmissionDetailPage() {
               disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
               onClick={handleSaveInspectionRecord}
             >
-              {isInspectionMutationPending ? "Saving..." : existingInspectionRecord ? "Save Changes" : "Save Inspection Record"}
+              {isInspectionMutationPending ? "Saving..." : selectedInspectionRecord ? "Save Changes" : "Save Inspection Record"}
             </Button>
           </Stack>
         </Paper>
@@ -711,13 +960,21 @@ export default function ChecksheetSubmissionDetailPage() {
             {checksheetMode === "regular" ? "Regular Approval" : "Daily Approval"}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Approval for the current inspection date is available here. Steps follow the checksheet template and must be approved sequentially.
+            Approval for the current {inspectionEntryMode === "board" ? "board-code entry" : "inspection date entry"} is available here. Steps follow the checksheet template and must be approved sequentially.
           </Typography>
 
-          {existingInspectionRecord?.inspectionDate ? (
+          {selectedInspectionRecord?.id ? (
             <Stack spacing={1.5}>
               <Typography variant="body2">
-                <strong>Date:</strong> {existingInspectionRecord.inspectionDate} | <strong>Shift:</strong> {currentDaySummary?.shift || existingInspectionRecord.shift || "-"}
+                {inspectionEntryMode === "board" ? (
+                  <>
+                    <strong>Board Code:</strong> {getRecordBoardCode(selectedInspectionRecord) || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
+                  </>
+                ) : (
+                  <>
+                    <strong>Date:</strong> {selectedInspectionRecord.inspectionDate || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
+                  </>
+                )}
               </Typography>
 
               {approvalSteps.length > 0 ? (
@@ -801,119 +1058,234 @@ export default function ChecksheetSubmissionDetailPage() {
             >
               {createApprovalMutation.isPending ? "Submitting..." : "Submit For Approval"}
             </Button>
+            {canCancelSubmission && (
+              <Button
+                color="warning"
+                variant="outlined"
+                disabled={cancelApprovalMutation.isPending}
+                onClick={() => setCancelSubmissionOpen(true)}
+              >
+                {cancelApprovalMutation.isPending ? "Cancelling..." : "Cancel Approval"}
+              </Button>
+            )}
           </Stack>
+          {canCancelSubmission && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
+              Cancel approval to stop the current request and return this transaction to DRAFT so the checksheet can be corrected and resubmitted.
+            </Typography>
+          )}
         </Paper>
 
         <Paper variant="outlined" sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>Repair Entry</Typography>
           <Stack spacing={2}>
-            <TextField
-              label="Repair Date"
-              type="date"
-              value={repairForm.repairDate}
-              onChange={(event) => setRepairForm((current) => ({ ...current, repairDate: event.target.value }))}
-              InputLabelProps={{ shrink: true }}
-              disabled={!isDraft || createRepairMutation.isPending}
-            />
-            <TextField
-              label="Damage Description"
-              value={repairForm.damageDescription}
-              onChange={(event) => setRepairForm((current) => ({ ...current, damageDescription: event.target.value }))}
-              multiline
-              minRows={2}
-              disabled={!isDraft || createRepairMutation.isPending}
-            />
-            <TextField
-              label="Repair Description"
-              value={repairForm.repairDescription}
-              onChange={(event) => setRepairForm((current) => ({ ...current, repairDescription: event.target.value }))}
-              multiline
-              minRows={2}
-              disabled={!isDraft || createRepairMutation.isPending}
-            />
-            <TextField
-              label="Note"
-              value={repairForm.note}
-              onChange={(event) => setRepairForm((current) => ({ ...current, note: event.target.value }))}
-              multiline
-              minRows={2}
-              disabled={!isDraft || createRepairMutation.isPending}
-            />
-            <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end">
-              <Button
-                variant="contained"
-                disabled={!isDraft || !repairForm.damageDescription.trim() || !repairForm.repairDescription.trim() || createRepairMutation.isPending}
-                onClick={handleSaveRepairRecord}
-              >
-                {createRepairMutation.isPending ? "Saving..." : "Save Repair Record"}
-              </Button>
-            </Stack>
-          </Stack>
-        </Paper>
+            {availableRepairForms.map((repairFormDefinition) => {
+              const records = repairRecordsByFormKey[repairFormDefinition.formKey] ?? [];
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Saved Repair Records</Typography>
-          <Stack spacing={2}>
-            {submission.repairRecords.map((record) => (
-              <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
-                <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                  <Box>
-                    <Typography fontWeight={600}>{record.damageDescription}</Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{record.repairDescription}</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
-                      {record.repairDate || "No date"} | Repaired by: {record.repairedByName || "-"}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                      ASSY: {record.checkedByAssyName || "-"} | QA: {record.checkedByQaName || "-"} | MTA: {record.checkedByCoordinatorName || "-"}
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
+              return (
+                <Paper key={repairFormDefinition.formKey} variant="outlined" sx={{ p: 2.5 }}>
+                  <Stack spacing={2}>
+                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
+                      <Box>
+                        <Typography variant="h6">{`${repairFormDefinition.sortOrder}. ${repairFormDefinition.title}`}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Review saved repair records and register a new one when needed.
+                        </Typography>
+                      </Box>
                       <Button
-                        variant="outlined"
-                        disabled={approveRepairMutation.isPending}
-                        onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                        variant="contained"
+                        disabled={!isDraft}
+                        onClick={() => setActiveRepairDialogKey(repairFormDefinition.formKey)}
                       >
-                        Approve Next Level
+                        Add Repair Record
                       </Button>
-                    )}
-                    {isDraft && (
-                      <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
-                        <DeleteOutlineIcon />
-                      </IconButton>
-                    )}
+                    </Stack>
+                    <Stack spacing={1.5}>
+                      <Typography variant="subtitle2">Saved Records</Typography>
+                      {records.map((record) => (
+                        <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
+                          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                            <Box>
+                              <Typography fontWeight={600}>{record.damageDescription}</Typography>
+                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                {record.repairDescription}
+                              </Typography>
+                              {record.note && (
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                                  Note: {record.note}
+                                </Typography>
+                              )}
+                              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                                <Chip size="small" variant="outlined" label={record.repairDate || "No repair date"} />
+                                <Chip size="small" variant="outlined" label={`By ${record.repairedByName || "-"}`} />
+                                <Chip
+                                  size="small"
+                                  color={record.checkedByAssyUserId ? "success" : "default"}
+                                  variant={record.checkedByAssyUserId ? "filled" : "outlined"}
+                                  label={`ASSY ${record.checkedByAssyName || "Pending"}`}
+                                />
+                                <Chip
+                                  size="small"
+                                  color={record.checkedByQaUserId ? "success" : "default"}
+                                  variant={record.checkedByQaUserId ? "filled" : "outlined"}
+                                  label={`QA ${record.checkedByQaName || "Pending"}`}
+                                />
+                                <Chip
+                                  size="small"
+                                  color={record.checkedByCoordinatorUserId ? "success" : "default"}
+                                  variant={record.checkedByCoordinatorUserId ? "filled" : "outlined"}
+                                  label={`MTA ${record.checkedByCoordinatorName || "Pending"}`}
+                                />
+                              </Stack>
+                            </Box>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
+                                <Button
+                                  variant="outlined"
+                                  disabled={approveRepairMutation.isPending}
+                                  onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                                >
+                                  Approve Next Level
+                                </Button>
+                              )}
+                              {isDraft && (
+                                <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
+                                  <DeleteOutlineIcon />
+                                </IconButton>
+                              )}
+                            </Stack>
+                          </Stack>
+                        </Paper>
+                      ))}
+                      {records.length === 0 && <Typography variant="body2" color="text.secondary">No repair records yet for this section.</Typography>}
+                    </Stack>
                   </Stack>
-                </Stack>
-              </Paper>
-            ))}
-            {submission.repairRecords.length === 0 && <Typography variant="body2" color="text.secondary">No repair records yet.</Typography>}
+                </Paper>
+              );
+            })}
           </Stack>
         </Paper>
-      </Stack>
+        </Stack>
 
-      <ConfirmationDialog
-        open={!!deleteTarget}
-        title="Delete Record"
-        text={deleteTarget?.type === "submission" ? "Delete this DRAFT checksheet transaction?" : "Delete this checksheet record?"}
-        confirmText="Delete"
-        confirmColor="error"
-        isLoading={deleteInspectionMutation.isPending || deleteRepairMutation.isPending || deleteSubmissionMutation.isPending}
-        onConfirmDialogClose={() => setDeleteTarget(null)}
-        onYesClick={() => {
-          if (!deleteTarget) return;
-          if (deleteTarget.type === "submission") {
-            deleteSubmissionMutation.mutate(deleteTarget.id, {
-              onSuccess: () => navigate("/checksheets/submissions")
+        <ConfirmationDialog
+          open={!!deleteTarget}
+          title="Delete Record"
+          text={deleteTarget?.type === "submission" ? "Delete this DRAFT checksheet transaction?" : "Delete this checksheet record?"}
+          confirmText="Delete"
+          confirmColor="error"
+          isLoading={deleteInspectionMutation.isPending || deleteRepairMutation.isPending || deleteSubmissionMutation.isPending}
+          onConfirmDialogClose={() => setDeleteTarget(null)}
+          onYesClick={() => {
+            if (!deleteTarget) return;
+            if (deleteTarget.type === "submission") {
+              deleteSubmissionMutation.mutate(deleteTarget.id, {
+                onSuccess: () => navigate("/checksheets/submissions")
+              });
+              return;
+            }
+            if (deleteTarget.type === "inspection") {
+              deleteInspectionMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
+              return;
+            }
+            deleteRepairMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
+          }}
+        />
+
+        <ConfirmationDialog
+          open={cancelSubmissionOpen}
+          title="Cancel Approval"
+          text="Cancel the current approval request and return this checksheet transaction to DRAFT so it can be edited again?"
+          confirmText="Cancel Approval"
+          confirmColor="warning"
+          isLoading={cancelApprovalMutation.isPending}
+          onConfirmDialogClose={() => setCancelSubmissionOpen(false)}
+          onYesClick={() => {
+            if (!currentApprovalRequestId) return;
+            cancelApprovalMutation.mutate(currentApprovalRequestId, {
+              onSuccess: () => setCancelSubmissionOpen(false)
             });
-            return;
-          }
-          if (deleteTarget.type === "inspection") {
-            deleteInspectionMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
-            return;
-          }
-          deleteRepairMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
-        }}
-      />
-    </Box>
+          }}
+        />
+        <Dialog open={!!activeRepairFormDefinition} onClose={handleCloseRepairDialog} fullWidth maxWidth="sm">
+          <DialogTitle>
+            {activeRepairFormDefinition
+              ? `Add Repair Record: ${activeRepairFormDefinition.sortOrder}. ${activeRepairFormDefinition.title}`
+              : "Add Repair Record"}
+          </DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2} sx={{ pt: 0.5 }}>
+              <TextField
+                label="Repair Date"
+                type="date"
+                value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairDate : ""}
+                onChange={(event) => {
+                  if (!activeRepairFormDefinition) return;
+                  updateRepairFormValue(activeRepairFormDefinition.formKey, { repairDate: event.target.value });
+                }}
+                InputLabelProps={{ shrink: true }}
+                size="small"
+                disabled={createRepairMutation.isPending}
+              />
+              <TextField
+                label="Damage Description"
+                value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).damageDescription : ""}
+                onChange={(event) => {
+                  if (!activeRepairFormDefinition) return;
+                  updateRepairFormValue(activeRepairFormDefinition.formKey, { damageDescription: event.target.value });
+                }}
+                multiline
+                minRows={2}
+                size="small"
+                disabled={createRepairMutation.isPending}
+              />
+              <TextField
+                label="Repair Description"
+                value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairDescription : ""}
+                onChange={(event) => {
+                  if (!activeRepairFormDefinition) return;
+                  updateRepairFormValue(activeRepairFormDefinition.formKey, { repairDescription: event.target.value });
+                }}
+                multiline
+                minRows={2}
+                size="small"
+                disabled={createRepairMutation.isPending}
+              />
+              <TextField
+                label="Note"
+                value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).note : ""}
+                onChange={(event) => {
+                  if (!activeRepairFormDefinition) return;
+                  updateRepairFormValue(activeRepairFormDefinition.formKey, { note: event.target.value });
+                }}
+                multiline
+                minRows={2}
+                size="small"
+                disabled={createRepairMutation.isPending}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseRepairDialog} disabled={createRepairMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={
+                !activeRepairFormDefinition ||
+                !(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).damageDescription.trim() ||
+                !(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairDescription.trim() ||
+                createRepairMutation.isPending
+              }
+              onClick={() => {
+                if (!activeRepairFormDefinition) return;
+                handleSaveRepairRecord(activeRepairFormDefinition.formKey);
+              }}
+            >
+              {createRepairMutation.isPending ? "Saving..." : "Save Repair Record"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      </Box>
+    </LocalizationProvider>
   );
 }
