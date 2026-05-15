@@ -252,6 +252,15 @@ function getApproverDisplayName(person) {
   return person?.fullName || person?.approvedByFullName || person?.username || person?.approvedByUsername || "-";
 }
 
+function getStepAccessNames(step) {
+  const approvers = step?.approvers ?? [];
+  if (approvers.length > 0) {
+    return approvers.map(getApproverDisplayName).join(", ");
+  }
+
+  return getApproverDisplayName(step?.approver);
+}
+
 function stepIncludesCurrentUser(step, userId) {
   const normalizedUserId = Number(userId);
   if (!normalizedUserId) {
@@ -660,511 +669,508 @@ export default function ChecksheetSubmissionDetailPage() {
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box sx={{ p: 3 }}>
         <Stack spacing={3}>
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" spacing={2}>
-            <Box>
-              <Typography variant="h5" fontWeight={700}>{submission.machineCode}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {submission.location} | {submission.lineName}
-              </Typography>
-            </Box>
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Chip label={submission.checksheetMode.toUpperCase()} />
-              <Chip
-                label={formatSubmissionStatus(submission.status)}
-                color={submission.status === "approved" ? "success" : submission.status === "submitted" ? "warning" : submission.status === "rejected" ? "error" : "default"}
-              />
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" spacing={2}>
+              <Box>
+                <Typography variant="h5" fontWeight={700}>{submission.machineCode}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {submission.location} | {submission.lineName}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
+                <Chip label={submission.checksheetMode.toUpperCase()} />
+                <Chip
+                  label={formatSubmissionStatus(submission.status)}
+                  color={submission.status === "approved" ? "success" : submission.status === "submitted" ? "warning" : submission.status === "rejected" ? "error" : "default"}
+                />
+              </Stack>
             </Stack>
-          </Stack>
 
-          <Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ mt: 2 }} flexWrap="wrap">
-            <Typography variant="body2"><strong>Month Period:</strong> {formatMonthPeriod(submission.inspectionDate)}</Typography>
-            <Typography variant="body2"><strong>Shift:</strong> {submission.shift}</Typography>
-            <Typography variant="body2"><strong>Group:</strong> {submission.groupCodes?.join(", ") || "-"}</Typography>
-            <Typography variant="body2"><strong>Template:</strong> {submission.template?.name || "-"}</Typography>
-          </Stack>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ mt: 2 }} flexWrap="wrap">
+              <Typography variant="body2"><strong>Month Period:</strong> {formatMonthPeriod(submission.inspectionDate)}</Typography>
+              <Typography variant="body2"><strong>Shift:</strong> {submission.shift}</Typography>
+              <Typography variant="body2"><strong>Group:</strong> {submission.groupCodes?.join(", ") || "-"}</Typography>
+              <Typography variant="body2"><strong>Template:</strong> {submission.template?.name || "-"}</Typography>
+            </Stack>
 
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 2 }} alignItems={{ md: "center" }}>
-            <Stack spacing={0.5}>
-              <RadioGroup
-                row
-                value={checksheetMode}
-                onChange={(event) => {
-                  const nextMode = event.target.value;
-                  setSelectedMode(nextMode);
-                  updateSubmissionMutation.mutate({
-                    machineCode: submission.machineCode,
-                    checksheetMode: nextMode,
-                    inspectionDate: submission.inspectionDate,
-                    shift: submission.shift,
-                    groupCodes: submission.groupCodes ?? []
-                  });
-                }}
-                sx={{ gap: 1.5, flexWrap: "wrap" }}
-              >
-                {machineModes.map((mode) => (
-                  <Paper
-                    key={mode}
-                    variant="outlined"
-                    sx={{
-                      px: 0.5,
-                      borderRadius: 2,
-                      borderColor: checksheetMode === mode ? "primary.main" : "divider",
-                      bgcolor: checksheetMode === mode ? "primary.50" : "background.paper"
-                    }}
-                  >
-                    <FormControlLabel
-                      value={mode}
-                      disabled={!isDraft || updateSubmissionMutation.isPending}
-                      control={<Radio size="small" />}
-                      label={String(mode).toUpperCase()}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 2 }} alignItems={{ md: "center" }}>
+              <Stack spacing={0.5}>
+                <RadioGroup
+                  row
+                  value={checksheetMode}
+                  onChange={(event) => {
+                    const nextMode = event.target.value;
+                    setSelectedMode(nextMode);
+                    updateSubmissionMutation.mutate({
+                      machineCode: submission.machineCode,
+                      checksheetMode: nextMode,
+                      inspectionDate: submission.inspectionDate,
+                      shift: submission.shift,
+                      groupCodes: submission.groupCodes ?? []
+                    });
+                  }}
+                  sx={{ gap: 1.5, flexWrap: "wrap" }}
+                >
+                  {machineModes.map((mode) => (
+                    <Paper
+                      key={mode}
+                      variant="outlined"
                       sx={{
-                        m: 0,
-                        px: 1,
-                        py: 0.25,
-                        minHeight: 40,
-                        "& .MuiFormControlLabel-label": {
-                          fontSize: 14,
-                          fontWeight: 600,
-                          letterSpacing: 0.4
-                        }
+                        px: 0.5,
+                        borderRadius: 2,
+                        borderColor: checksheetMode === mode ? "primary.main" : "divider",
+                        bgcolor: checksheetMode === mode ? "primary.50" : "background.paper"
                       }}
-                    />
-                  </Paper>
-                ))}
-              </RadioGroup>
+                    >
+                      <FormControlLabel
+                        value={mode}
+                        disabled={!isDraft || updateSubmissionMutation.isPending}
+                        control={<Radio size="small" />}
+                        label={String(mode).toUpperCase()}
+                        sx={{
+                          m: 0,
+                          px: 1,
+                          py: 0.25,
+                          minHeight: 40,
+                          "& .MuiFormControlLabel-label": {
+                            fontSize: 14,
+                            fontWeight: 600,
+                            letterSpacing: 0.4
+                          }
+                        }}
+                      />
+                    </Paper>
+                  ))}
+                </RadioGroup>
+              </Stack>
+              {!isDraft && (
+                <Typography variant="caption" color="text.secondary">
+                  Mode can only be changed in DRAFT status.
+                </Typography>
+              )}
             </Stack>
-            {!isDraft && (
-              <Typography variant="caption" color="text.secondary">
-                Mode can only be changed in DRAFT status.
-              </Typography>
-            )}
-          </Stack>
 
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 3 }}>
-            <Button
-              variant="contained"
-              startIcon={<CalendarMonthOutlinedIcon />}
-              onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
-            >
-              Open Monthly Detail
-            </Button>
-            {isDraft && isOwner && (
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 3 }}>
               <Button
-                color="error"
-                variant="outlined"
-                startIcon={<DeleteOutlineIcon />}
-                disabled={deleteSubmissionMutation.isPending}
-                onClick={() => setDeleteTarget({ type: "submission", id: submission.id })}
+                variant="contained"
+                startIcon={<CalendarMonthOutlinedIcon />}
+                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
               >
-                Delete Transaction
+                Open Monthly Detail
               </Button>
-            )}
-          </Stack>
-        </Paper>
+              {isDraft && isOwner && (
+                <Button
+                  color="error"
+                  variant="outlined"
+                  startIcon={<DeleteOutlineIcon />}
+                  disabled={deleteSubmissionMutation.isPending}
+                  onClick={() => setDeleteTarget({ type: "submission", id: submission.id })}
+                >
+                  Delete Transaction
+                </Button>
+              )}
+            </Stack>
+          </Paper>
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Summary</Typography>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap">
-            <Chip label={`${submission.inspectionRecords?.length ?? 0} inspection records`} variant="outlined" />
-            <Chip label={`${submission.repairRecords?.length ?? 0} repair records`} variant="outlined" />
-          </Stack>
-        </Paper>
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Summary</Typography>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} flexWrap="wrap">
+              <Chip label={`${submission.inspectionRecords?.length ?? 0} inspection records`} variant="outlined" />
+              <Chip label={`${submission.repairRecords?.length ?? 0} repair records`} variant="outlined" />
+            </Stack>
+          </Paper>
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
-            <Box>
-              <Typography variant="h6">Inspection Entry</Typography>
-            </Box>
-            <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ minWidth: { md: 320 } }}>
-              {inspectionEntryMode === "board" ? (
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} sx={{ mb: 2 }}>
+              <Box>
+                <Typography variant="h6">Inspection Entry</Typography>
+              </Box>
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ minWidth: { md: 320 } }}>
+                {inspectionEntryMode === "board" ? (
+                  <TextField
+                    label="Board Code / Number"
+                    value={boardCode}
+                    onChange={(event) => setBoardCode(normalizeBoardCode(event.target.value))}
+                    placeholder="A1"
+                    size="small"
+                    fullWidth
+                  />
+                ) : (
+                  <DatePicker
+                    label="Inspection Date"
+                    value={dateValueToDate(inspectionDate)}
+                    onChange={(value) => setInspectionDate(dateToDateValue(value))}
+                    format="yyyy-MM-dd"
+                    slotProps={{
+                      textField: {
+                        size: "small",
+                        fullWidth: true
+                      }
+                    }}
+                  />
+                )}
                 <TextField
-                  label="Board Code / Number"
-                  value={boardCode}
-                  onChange={(event) => setBoardCode(normalizeBoardCode(event.target.value))}
-                  placeholder="A1"
+                  select
+                  label="Shift"
+                  value={inspectionShift}
+                  onChange={(event) => setInspectionShift(event.target.value)}
                   size="small"
                   fullWidth
-                />
-              ) : (
-                <DatePicker
-                  label="Inspection Date"
-                  value={dateValueToDate(inspectionDate)}
-                  onChange={(value) => setInspectionDate(dateToDateValue(value))}
-                  format="yyyy-MM-dd"
-                  slotProps={{
-                    textField: {
-                      size: "small",
-                      fullWidth: true
+                >
+                  {["1", "2", "3"].map((shift) => (
+                    <MenuItem key={shift} value={shift}>Shift {shift}</MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+            </Stack>
+
+            <TextField
+              label="Note"
+              value={inspectionNote}
+              onChange={(event) => setInspectionNote(event.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+              sx={{ mb: 2 }}
+            />
+
+            <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
+              <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 480 }}>
+                <Table
+                  size="small"
+                  sx={{
+                    "& .MuiTableCell-root": {
+                      borderRight: 1,
+                      borderColor: "divider",
+                      verticalAlign: "top"
+                    },
+                    "& .MuiTableCell-root:last-of-type": {
+                      borderRight: 0
+                    },
+                    "& .MuiTableHead-root .MuiTableCell-root": {
+                      fontWeight: 700
+                    },
+                    "& .MuiTableCell-root[data-merged='true']": {
+                      verticalAlign: "middle"
                     }
                   }}
-                />
-              )}
-              <TextField
-                select
-                label="Shift"
-                value={inspectionShift}
-                onChange={(event) => setInspectionShift(event.target.value)}
-                size="small"
-                fullWidth
-              >
-                {["1", "2", "3"].map((shift) => (
-                  <MenuItem key={shift} value={shift}>Shift {shift}</MenuItem>
-                ))}
-              </TextField>
-            </Stack>
-          </Stack>
+                >
+                  <TableHead>
+                    <TableRow>
+                      {templateColumns.map((column, columnIndex) => (
+                        <TableCell key={column.id} sx={{ pl: columnIndex === 0 ? 3 : 2 }}>{column.label}</TableCell>
+                      ))}
+                      <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
+                      <TableCell sx={{ minWidth: 160, pl: 1 }}>Remark</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {templateItems.map((item, rowIndex) => (
+                      <TableRow key={item.id} hover>
+                        {templateColumns.map((column, columnIndex) => {
+                          const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
 
-          <TextField
-            label="Note"
-            value={inspectionNote}
-            onChange={(event) => setInspectionNote(event.target.value)}
-            multiline
-            minRows={2}
-            fullWidth
-            sx={{ mb: 2 }}
-          />
+                          if (mergeCell?.hidden) {
+                            return null;
+                          }
 
-          <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
-            <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 480 }}>
-              <Table
-                size="small"
-                sx={{
-                  "& .MuiTableCell-root": {
-                    borderRight: 1,
-                    borderColor: "divider",
-                    verticalAlign: "top"
-                  },
-                  "& .MuiTableCell-root:last-of-type": {
-                    borderRight: 0
-                  },
-                  "& .MuiTableHead-root .MuiTableCell-root": {
-                    fontWeight: 700
-                  },
-                  "& .MuiTableCell-root[data-merged='true']": {
-                    verticalAlign: "middle"
-                  }
-                }}
-              >
-                <TableHead>
-                  <TableRow>
-                    {templateColumns.map((column, columnIndex) => (
-                      <TableCell key={column.id} sx={{ pl: columnIndex === 0 ? 3 : 2 }}>{column.label}</TableCell>
-                    ))}
-                    <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
-                    <TableCell sx={{ minWidth: 160, pl: 1 }}>Remark</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {templateItems.map((item, rowIndex) => (
-                    <TableRow key={item.id} hover>
-                      {templateColumns.map((column, columnIndex) => {
-                        const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
-
-                        if (mergeCell?.hidden) {
-                          return null;
-                        }
-
-                        return (
-                          <TableCell
-                            key={`${item.id}-${column.columnKey}`}
-                            rowSpan={mergeCell?.rowSpan ?? 1}
-                            data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}  // ✅ add this
-                            sx={{
-                              pl: columnIndex === 0 ? 3 : 2,
-                              verticalAlign: "middle"
-                            }}
-                          >
-                            {item.data?.[column.columnKey] || "-"}
-                          </TableCell>
-                        );
-                      })}
-                      <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
-                        {(item.valueType ?? "fixed") === "fixed" ? (
-                          <ButtonGroup
-                            size="small"
-                            disabled={!isDraft || isInspectionMutationPending}
-                            sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-                          >
-                            {FIXED_OPTIONS.map((option) => {
-                              const isSelected = getEntryValue(item.id, "resultValue") === option;
-                              return (
-                                <Button
-                                  key={`${item.id}-${option}`}
-                                  variant={isSelected ? "contained" : "outlined"}
-                                  onClick={() => handleInspectionValueChange(item.id, { resultValue: option })}
-                                  sx={{
-                                    px: 1,
-                                    fontSize: 12,
-                                    fontWeight: 600,
-                                    minWidth: 40,
-                                    whiteSpace: "nowrap"
-                                  }}
-                                >
-                                  {option}
-                                </Button>
-                              );
-                            })}
-                          </ButtonGroup>
-                        ) : (
+                          return (
+                            <TableCell
+                              key={`${item.id}-${column.columnKey}`}
+                              rowSpan={mergeCell?.rowSpan ?? 1}
+                              data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}  // ✅ add this
+                              sx={{
+                                pl: columnIndex === 0 ? 3 : 2,
+                                verticalAlign: "middle"
+                              }}
+                            >
+                              {item.data?.[column.columnKey] || "-"}
+                            </TableCell>
+                          );
+                        })}
+                        <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
+                          {(item.valueType ?? "fixed") === "fixed" ? (
+                            <ButtonGroup
+                              size="small"
+                              disabled={!isDraft || isInspectionMutationPending}
+                              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+                            >
+                              {FIXED_OPTIONS.map((option) => {
+                                const isSelected = getEntryValue(item.id, "resultValue") === option;
+                                return (
+                                  <Button
+                                    key={`${item.id}-${option}`}
+                                    variant={isSelected ? "contained" : "outlined"}
+                                    onClick={() => handleInspectionValueChange(item.id, { resultValue: option })}
+                                    sx={{
+                                      px: 1,
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      minWidth: 40,
+                                      whiteSpace: "nowrap"
+                                    }}
+                                  >
+                                    {option}
+                                  </Button>
+                                );
+                              })}
+                            </ButtonGroup>
+                          ) : (
+                            <TextField
+                              value={getEntryValue(item.id, "resultValue")}
+                              onChange={(e) => handleInspectionValueChange(item.id, { resultValue: e.target.value })}
+                              placeholder="Enter value"
+                              size="small"
+                              fullWidth
+                              disabled={!isDraft || isInspectionMutationPending}
+                            />
+                          )}
+                        </TableCell>
+                        <TableCell sx={{ pl: 1 }}>
                           <TextField
-                            value={getEntryValue(item.id, "resultValue")}
-                            onChange={(e) => handleInspectionValueChange(item.id, { resultValue: e.target.value })}
-                            placeholder="Enter value"
+                            value={getEntryValue(item.id, "remark")}
+                            onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}
+                            placeholder="Remark"
                             size="small"
                             fullWidth
                             disabled={!isDraft || isInspectionMutationPending}
                           />
-                        )}
-                      </TableCell>
-                      <TableCell sx={{ pl: 1 }}>
-                        <TextField
-                          value={getEntryValue(item.id, "remark")}
-                          onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}
-                          placeholder="Remark"
-                          size="small"
-                          fullWidth
-                          disabled={!isDraft || isInspectionMutationPending}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
 
-          <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end" spacing={2} sx={{ mt: 2 }}>
-            {isDraft && selectedInspectionRecord && (
+            <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end" spacing={2} sx={{ mt: 2 }}>
+              {isDraft && selectedInspectionRecord && (
+                <Button
+                  color="error"
+                  variant="outlined"
+                  disabled={isInspectionMutationPending || deleteInspectionMutation.isPending}
+                  onClick={() => setDeleteTarget({ type: "inspection", id: selectedInspectionRecord.id })}
+                >
+                  Delete Inspection Entry
+                </Button>
+              )}
               <Button
-                color="error"
-                variant="outlined"
-                disabled={isInspectionMutationPending || deleteInspectionMutation.isPending}
-                onClick={() => setDeleteTarget({ type: "inspection", id: selectedInspectionRecord.id })}
+                variant="contained"
+                disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
+                onClick={handleSaveInspectionRecord}
               >
-                Delete Inspection Entry
+                {isInspectionMutationPending ? "Saving..." : selectedInspectionRecord ? "Save Changes" : "Save Inspection Record"}
               </Button>
-            )}
-            <Button
-              variant="contained"
-              disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
-              onClick={handleSaveInspectionRecord}
-            >
-              {isInspectionMutationPending ? "Saving..." : selectedInspectionRecord ? "Save Changes" : "Save Inspection Record"}
-            </Button>
-          </Stack>
-        </Paper>
+            </Stack>
+          </Paper>
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
-            {checksheetMode === "regular" ? "Regular Approval" : "Daily Approval"}
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Approval for the current {inspectionEntryMode === "board" ? "board-code entry" : "inspection date entry"} is available here. Steps follow the checksheet template and must be approved sequentially.
-          </Typography>
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 1 }}>
+              {checksheetMode === "regular" ? "Regular Approval" : "Daily Approval"}
+            </Typography>
 
-          {selectedInspectionRecord?.id ? (
-            <Stack spacing={1.5}>
-              <Typography variant="body2">
-                {inspectionEntryMode === "board" ? (
-                  <>
-                    <strong>Board Code:</strong> {getRecordBoardCode(selectedInspectionRecord) || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
-                  </>
-                ) : (
-                  <>
-                    <strong>Date:</strong> {selectedInspectionRecord.inspectionDate || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
-                  </>
-                )}
-              </Typography>
-
-              {approvalSteps.length > 0 ? (
-                approvalSteps.map((step) => {
-                  const approval = currentDaySummary?.approvals?.find((entry) => entry.stepId === step.id);
-                  const canApprove = canApproveInspectionStep(step);
-
-                  return (
-                    <Paper key={step.id} variant="outlined" sx={{ p: 2 }}>
-                      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
-                        <Box>
-                          <Typography fontWeight={600}>{step.stepName}</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            Approver: {getApproverDisplayName(step.approver)}
-                          </Typography>
-                        </Box>
-
-                        {approval ? (
-                          <Chip label={`Approved by ${getApproverDisplayName(approval)}`} color="success" variant="outlined" />
-                        ) : canApprove ? (
-                          <Button
-                            variant="outlined"
-                            disabled={approveDailyStepMutation.isPending}
-                            onClick={() => approveDailyStepMutation.mutate({ recordId: currentDaySummary.recordId, stepId: step.id })}
-                          >
-                            Approve
-                          </Button>
-                        ) : (
-                          <Chip label={currentDaySummary?.recordId ? "Waiting previous step / assigned approver" : "Save record first"} variant="outlined" />
-                        )}
-                      </Stack>
-                    </Paper>
-                  );
-                })
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  No {checksheetMode === "regular" ? "regular" : "daily"} approval steps are configured on this checksheet template.
+            {selectedInspectionRecord?.id ? (
+              <Stack spacing={1.5}>
+                <Typography variant="body2">
+                  {inspectionEntryMode === "board" ? (
+                    <>
+                      <strong>Board Code:</strong> {getRecordBoardCode(selectedInspectionRecord) || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
+                    </>
+                  ) : (
+                    <>
+                      <strong>Date:</strong> {selectedInspectionRecord.inspectionDate || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
+                    </>
+                  )}
                 </Typography>
+
+                {approvalSteps.length > 0 ? (
+                  approvalSteps.map((step) => {
+                    const approval = currentDaySummary?.approvals?.find((entry) => entry.stepId === step.id);
+                    const canApprove = canApproveInspectionStep(step);
+
+                    return (
+                      <Paper key={step.id} variant="outlined" sx={{ p: 2 }}>
+                        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
+                          <Box>
+                            <Typography fontWeight={600}>{step.stepName}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              Access: {getStepAccessNames(step)}
+                            </Typography>
+                          </Box>
+
+                          {approval ? (
+                            <Chip label={`Approved by ${getApproverDisplayName(approval)}`} color="success" variant="outlined" />
+                          ) : canApprove ? (
+                            <Button
+                              variant="outlined"
+                              disabled={approveDailyStepMutation.isPending}
+                              onClick={() => approveDailyStepMutation.mutate({ recordId: currentDaySummary.recordId, stepId: step.id })}
+                            >
+                              Approve
+                            </Button>
+                          ) : (
+                            <Chip label={currentDaySummary?.recordId ? "Waiting previous step / assigned approver" : "Save record first"} variant="outlined" />
+                          )}
+                        </Stack>
+                      </Paper>
+                    );
+                  })
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    No {checksheetMode === "regular" ? "regular" : "daily"} approval steps are configured on this checksheet template.
+                  </Typography>
+                )}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Save a {checksheetMode === "regular" ? "regular" : "daily"} inspection record first to start approval.
+              </Typography>
+            )}
+          </Paper>
+
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Month-End Submission</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Use the separate monthly page for horizontal date review and final month-end approval submission.
+            </Typography>
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
+              <Button
+                variant="outlined"
+                startIcon={<CalendarMonthOutlinedIcon />}
+                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
+              >
+                Open Monthly Page
+              </Button>
+              <TextField
+                select
+                size="small"
+                label="Approval Template"
+                value={approvalTemplateId}
+                onChange={(event) => setApprovalTemplateId(event.target.value)}
+                sx={{ minWidth: 280 }}
+              >
+                {(approvalTemplates?.items ?? []).map((template) => (
+                  <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                ))}
+              </TextField>
+              <Button
+                variant="contained"
+                startIcon={<SendOutlinedIcon />}
+                disabled={!isDraft || !approvalTemplateId || createApprovalMutation.isPending}
+                onClick={() => createApprovalMutation.mutate({
+                  templateId: Number(approvalTemplateId),
+                  title: `${submission.machineCode} ${submission.inspectionDate} Shift ${submission.shift}`
+                })}
+              >
+                {createApprovalMutation.isPending ? "Submitting..." : "Submit For Approval"}
+              </Button>
+              {canCancelSubmission && (
+                <Button
+                  color="warning"
+                  variant="outlined"
+                  disabled={cancelApprovalMutation.isPending}
+                  onClick={() => setCancelSubmissionOpen(true)}
+                >
+                  {cancelApprovalMutation.isPending ? "Cancelling..." : "Cancel Approval"}
+                </Button>
               )}
             </Stack>
-          ) : (
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Save a {checksheetMode === "regular" ? "regular" : "daily"} inspection record first to start approval.
-            </Typography>
-          )}
-        </Paper>
-
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Month-End Submission</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Use the separate monthly page for horizontal date review and final month-end approval submission.
-          </Typography>
-          <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ md: "center" }}>
-            <Button
-              variant="outlined"
-              startIcon={<CalendarMonthOutlinedIcon />}
-              onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
-            >
-              Open Monthly Page
-            </Button>
-            <TextField
-              select
-              size="small"
-              label="Approval Template"
-              value={approvalTemplateId}
-              onChange={(event) => setApprovalTemplateId(event.target.value)}
-              sx={{ minWidth: 280 }}
-            >
-              {(approvalTemplates?.items ?? []).map((template) => (
-                <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
-              ))}
-            </TextField>
-            <Button
-              variant="contained"
-              startIcon={<SendOutlinedIcon />}
-              disabled={!isDraft || !approvalTemplateId || createApprovalMutation.isPending}
-              onClick={() => createApprovalMutation.mutate({
-                templateId: Number(approvalTemplateId),
-                title: `${submission.machineCode} ${submission.inspectionDate} Shift ${submission.shift}`
-              })}
-            >
-              {createApprovalMutation.isPending ? "Submitting..." : "Submit For Approval"}
-            </Button>
             {canCancelSubmission && (
-              <Button
-                color="warning"
-                variant="outlined"
-                disabled={cancelApprovalMutation.isPending}
-                onClick={() => setCancelSubmissionOpen(true)}
-              >
-                {cancelApprovalMutation.isPending ? "Cancelling..." : "Cancel Approval"}
-              </Button>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
+                Cancel approval to stop the current request and return this transaction to DRAFT so the checksheet can be corrected and resubmitted.
+              </Typography>
             )}
-          </Stack>
-          {canCancelSubmission && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
-              Cancel approval to stop the current request and return this transaction to DRAFT so the checksheet can be corrected and resubmitted.
-            </Typography>
-          )}
-        </Paper>
+          </Paper>
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Repair Entry</Typography>
-          <Stack spacing={2}>
-            {availableRepairForms.map((repairFormDefinition) => {
-              const records = repairRecordsByFormKey[repairFormDefinition.formKey] ?? [];
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>Repair Entry</Typography>
+            <Stack spacing={2}>
+              {availableRepairForms.map((repairFormDefinition) => {
+                const records = repairRecordsByFormKey[repairFormDefinition.formKey] ?? [];
 
-              return (
-                <Paper key={repairFormDefinition.formKey} variant="outlined" sx={{ p: 2.5 }}>
-                  <Stack spacing={2}>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
-                      <Box>
-                        <Typography variant="h6">{`${repairFormDefinition.sortOrder}. ${repairFormDefinition.title}`}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Review saved repair records and register a new one when needed.
-                        </Typography>
-                      </Box>
-                      <Button
-                        variant="contained"
-                        disabled={!isDraft}
-                        onClick={() => setActiveRepairDialogKey(repairFormDefinition.formKey)}
-                      >
-                        Add Repair Record
-                      </Button>
-                    </Stack>
-                    <Stack spacing={1.5}>
-                      <Typography variant="subtitle2">Saved Records</Typography>
-                      {records.map((record) => (
-                        <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
-                          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                            <Box>
-                              <Typography fontWeight={600}>{record.damageDescription}</Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                {record.repairDescription}
-                              </Typography>
-                              {record.note && (
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                                  Note: {record.note}
+                return (
+                  <Paper key={repairFormDefinition.formKey} variant="outlined" sx={{ p: 2.5 }}>
+                    <Stack spacing={2}>
+                      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
+                        <Box>
+                          <Typography variant="h6">{`${repairFormDefinition.sortOrder}. ${repairFormDefinition.title}`}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Review saved repair records and register a new one when needed.
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="contained"
+                          disabled={!isDraft}
+                          onClick={() => setActiveRepairDialogKey(repairFormDefinition.formKey)}
+                        >
+                          Add Repair Record
+                        </Button>
+                      </Stack>
+                      <Stack spacing={1.5}>
+                        <Typography variant="subtitle2">Saved Records</Typography>
+                        {records.map((record) => (
+                          <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
+                            <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                              <Box>
+                                <Typography fontWeight={600}>{record.damageDescription}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                  {record.repairDescription}
                                 </Typography>
-                              )}
-                              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                                <Chip size="small" variant="outlined" label={record.repairDate || "No repair date"} />
-                                <Chip size="small" variant="outlined" label={`By ${record.repairedByName || "-"}`} />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByAssyUserId ? "success" : "default"}
-                                  variant={record.checkedByAssyUserId ? "filled" : "outlined"}
-                                  label={`ASSY ${record.checkedByAssyName || "Pending"}`}
-                                />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByQaUserId ? "success" : "default"}
-                                  variant={record.checkedByQaUserId ? "filled" : "outlined"}
-                                  label={`QA ${record.checkedByQaName || "Pending"}`}
-                                />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByCoordinatorUserId ? "success" : "default"}
-                                  variant={record.checkedByCoordinatorUserId ? "filled" : "outlined"}
-                                  label={`MTA ${record.checkedByCoordinatorName || "Pending"}`}
-                                />
+                                {record.note && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                                    Note: {record.note}
+                                  </Typography>
+                                )}
+                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                                  <Chip size="small" variant="outlined" label={record.repairDate || "No repair date"} />
+                                  <Chip size="small" variant="outlined" label={`By ${record.repairedByName || "-"}`} />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByAssyUserId ? "success" : "default"}
+                                    variant={record.checkedByAssyUserId ? "filled" : "outlined"}
+                                    label={`ASSY ${record.checkedByAssyName || "Pending"}`}
+                                  />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByQaUserId ? "success" : "default"}
+                                    variant={record.checkedByQaUserId ? "filled" : "outlined"}
+                                    label={`QA ${record.checkedByQaName || "Pending"}`}
+                                  />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByCoordinatorUserId ? "success" : "default"}
+                                    variant={record.checkedByCoordinatorUserId ? "filled" : "outlined"}
+                                    label={`MTA ${record.checkedByCoordinatorName || "Pending"}`}
+                                  />
+                                </Stack>
+                              </Box>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
+                                  <Button
+                                    variant="outlined"
+                                    disabled={approveRepairMutation.isPending}
+                                    onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                                  >
+                                    Approve Next Level
+                                  </Button>
+                                )}
+                                {isDraft && (
+                                  <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
+                                    <DeleteOutlineIcon />
+                                  </IconButton>
+                                )}
                               </Stack>
-                            </Box>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
-                                <Button
-                                  variant="outlined"
-                                  disabled={approveRepairMutation.isPending}
-                                  onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
-                                >
-                                  Approve Next Level
-                                </Button>
-                              )}
-                              {isDraft && (
-                                <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
-                                  <DeleteOutlineIcon />
-                                </IconButton>
-                              )}
                             </Stack>
-                          </Stack>
-                        </Paper>
-                      ))}
-                      {records.length === 0 && <Typography variant="body2" color="text.secondary">No repair records yet for this section.</Typography>}
+                          </Paper>
+                        ))}
+                        {records.length === 0 && <Typography variant="body2" color="text.secondary">No repair records yet for this section.</Typography>}
+                      </Stack>
                     </Stack>
-                  </Stack>
-                </Paper>
-              );
-            })}
-          </Stack>
-        </Paper>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          </Paper>
         </Stack>
 
         <ConfirmationDialog

@@ -84,6 +84,17 @@ function normalizeRepairFormsForSubmit(repairForms) {
   return normalized.length > 0 ? normalized : [{ formKey: "repair-form-1", title: "Repair Entry", sortOrder: 1 }];
 }
 
+function extractMachineCodeSuffix(machineCode, lineCode, processCode) {
+  const normalizedMachineCode = String(machineCode ?? "");
+  const prefix = `${String(lineCode ?? "")}${String(processCode ?? "")}`;
+
+  if (prefix && normalizedMachineCode.startsWith(prefix)) {
+    return normalizedMachineCode.slice(prefix.length);
+  }
+
+  return normalizedMachineCode;
+}
+
 function PageShell({ title, description, action, children }) {
   return (
     <Box sx={{ p: 3 }}>
@@ -279,8 +290,11 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
 }
 
 function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, lines, groups, templates, onClose, onSubmit, isPending }) {
+  const initialMaster = checksheetMasters.find((item) => item.id === initialData?.checksheetMasterId);
+  const initialMachineCodeSuffix = initialData?.machineCodeSuffix
+    ?? extractMachineCodeSuffix(initialData?.machineCode, initialData?.lineCode, initialMaster?.processCode);
   const [form, setForm] = useState({
-    machineCode: initialData?.machineCode ?? "",
+    machineCodeSuffix: initialMachineCodeSuffix ?? "",
     checksheetMasterId: initialData?.checksheetMasterId ?? "",
     lineCode: initialData?.lineCode ?? "",
     groupCodes: initialData?.groupCodes ?? [],
@@ -292,8 +306,10 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
   });
 
   useEffect(() => {
+    const resolvedMaster = checksheetMasters.find((item) => item.id === initialData?.checksheetMasterId);
     setForm({
-      machineCode: initialData?.machineCode ?? "",
+      machineCodeSuffix: initialData?.machineCodeSuffix
+        ?? extractMachineCodeSuffix(initialData?.machineCode, initialData?.lineCode, resolvedMaster?.processCode),
       checksheetMasterId: initialData?.checksheetMasterId ?? "",
       lineCode: initialData?.lineCode ?? "",
       groupCodes: initialData?.groupCodes ?? [],
@@ -303,12 +319,11 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
       regularTemplateId: initialData?.modeTemplates?.find((item) => item.checksheetMode === "regular")?.templateId ?? "",
       isActive: initialData?.isActive ?? true
     });
-  }, [initialData]);
+  }, [checksheetMasters, initialData]);
 
   const selectedMaster = checksheetMasters.find((item) => item.id === form.checksheetMasterId);
-  const generatedMachineCode = mode === "edit"
-    ? form.machineCode
-    : `${form.lineCode || ""}${selectedMaster?.processCode || ""}${form.machineCode || ""}`;
+  const selectedLine = lines.find((item) => item.lineCode === form.lineCode) ?? null;
+  const generatedMachineCode = `${form.lineCode || ""}${selectedMaster?.processCode || ""}${form.machineCodeSuffix || ""}`;
   const isModeTemplateValid = form.modes.every((mode) => {
     if (mode === "daily") return !!form.dailyTemplateId;
     if (mode === "regular") return !!form.regularTemplateId;
@@ -353,16 +368,21 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
           <TextField select label="Checksheet Master" value={form.checksheetMasterId} onChange={(event) => setForm((current) => ({ ...current, checksheetMasterId: Number(event.target.value) }))}>
             {checksheetMasters.map((item) => <MenuItem key={item.id} value={item.id}>{item.processCode} - {item.processName} - {item.checksheetName}</MenuItem>)}
           </TextField>
-          <TextField select label="Line Master" value={form.lineCode} onChange={(event) => setForm((current) => ({ ...current, lineCode: event.target.value }))}>
-            {lines.map((line) => <MenuItem key={line.lineCode} value={line.lineCode}>{line.lineCode} - {line.lineName} ({line.location})</MenuItem>)}
-          </TextField>
+          <Autocomplete
+            options={lines}
+            value={selectedLine}
+            onChange={(_, option) => setForm((current) => ({ ...current, lineCode: option?.lineCode ?? "" }))}
+            isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
+            getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName} (${option.location})` : "")}
+            renderInput={(params) => <TextField {...params} label="Line Master" />}
+          />
           <TextField
-            label={mode === "edit" ? "Machine Code" : "Machine Code Suffix"}
-            value={form.machineCode}
-            onChange={(event) => setForm((current) => ({ ...current, machineCode: event.target.value }))}
+            label="Machine Code Suffix"
+            value={form.machineCodeSuffix}
+            onChange={(event) => setForm((current) => ({ ...current, machineCodeSuffix: event.target.value }))}
             disabled={mode === "edit"}
             helperText={mode === "edit"
-              ? "Stored machine code."
+              ? "Stored machine code suffix."
               : "Stored machine code format: line code + process code + machine code suffix."}
           />
           <TextField
@@ -462,7 +482,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
         <Button
           variant="contained"
           onClick={() => onSubmit({ ...form, repairForms: normalizedRepairForms })}
-          disabled={isPending || !form.machineCode.trim() || !form.checksheetMasterId || !form.lineCode || form.groupCodes.length === 0 || normalizedRepairForms.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
+          disabled={isPending || !form.machineCodeSuffix.trim() || !form.checksheetMasterId || !form.lineCode || form.groupCodes.length === 0 || normalizedRepairForms.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
         >
           {isPending ? "Saving..." : "Save"}
         </Button>
@@ -1340,7 +1360,7 @@ export function ChecksheetLinesPage() {
         isPending={createMachine.isPending || updateMachine.isPending || upsertModeTemplate.isPending}
         onSubmit={async (payload) => {
           const basePayload = {
-            machineCode: payload.machineCode,
+            machineCodeSuffix: payload.machineCodeSuffix,
             checksheetMasterId: payload.checksheetMasterId,
             lineCode: payload.lineCode,
             groupCodes: payload.groupCodes,

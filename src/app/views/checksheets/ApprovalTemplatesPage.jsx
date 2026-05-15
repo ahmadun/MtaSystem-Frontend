@@ -61,8 +61,9 @@ function formatDateTime(value) {
 
 function getUserOptionLabel(option) {
   if (!option) return "";
-  if (option.employeeName) return `${option.username} - ${option.employeeName}`;
-  if (option.email) return `${option.username} (${option.email})`;
+  const userCode = option.employeeCode || option.username;
+  if (option.employeeName) return `${userCode} - ${option.employeeName}`;
+  if (option.email) return `${userCode} (${option.email})`;
   return option.username || option.label || "";
 }
 
@@ -132,12 +133,6 @@ function CreateApprovalTemplateDialog({ open, onClose }) {
         <Stack spacing={0}>
           <Box sx={{ px: 3, py: 2.5, bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04) }}>
             <Stack spacing={1}>
-              <Typography variant="subtitle1" fontWeight={700}>
-                Build a reusable approval flow
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Define the template name, then add each approval step in the order operators should follow during submission.
-              </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={`${stepCount} step${stepCount === 1 ? "" : "s"}`} />
                 <Chip size="small" label={`${totalApprovers} approver assignment${totalApprovers === 1 ? "" : "s"}`} variant="outlined" />

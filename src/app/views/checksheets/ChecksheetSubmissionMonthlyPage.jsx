@@ -108,6 +108,23 @@ function parseMonthInput(value) {
   return { year, month };
 }
 
+function getDateStringForEntry(entry, daySummary, monthValue, fallbackDate) {
+  if (daySummary?.inspectionDate) {
+    return daySummary.inspectionDate;
+  }
+
+  if (entry?.inspectionDate) {
+    return entry.inspectionDate;
+  }
+
+  const day = Number(String(entry?.key ?? "").replace("day:", ""));
+  if (monthValue && day > 0) {
+    return `${monthValue}-${String(day).padStart(2, "0")}`;
+  }
+
+  return fallbackDate ?? `${monthValue}-01`;
+}
+
 function createDefaultEntryValues(items) {
   return items.reduce((accumulator, item) => {
     accumulator[item.templateItemId] = {
@@ -586,8 +603,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
   );
   const selectedDaySummary = selectedEntry ? daySummaryMap.get(selectedEntry.key) ?? null : null;
   const existingRecordId = useMemo(
-    () => (selectedEntry ? getRecordIdForColumn(monthlyItems, selectedEntry.key, inspectionEntryMode) : null),
-    [inspectionEntryMode, monthlyItems, selectedEntry]
+    () => selectedDaySummary?.recordId ?? (selectedEntry ? getRecordIdForColumn(monthlyItems, selectedEntry.key, inspectionEntryMode) : null),
+    [inspectionEntryMode, monthlyItems, selectedDaySummary?.recordId, selectedEntry]
   );
   const updateInspectionForRecordMutation = useUpdateInspectionRecord(submissionId, existingRecordId);
   const isDraft = monthlyView?.status === "draft";
@@ -615,7 +632,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
     setInspectionNote(selectedDaySummary?.note ?? "");
   }, [inspectionEntryMode, monthlyItems, referenceView?.shift, selectedDaySummary?.note, selectedDaySummary?.shift, selectedEntry?.key]);
 
-  const selectedDateString = selectedDaySummary?.inspectionDate ?? selectedEntry?.inspectionDate ?? referenceView?.inspectionDate ?? `${monthValue}-01`;
+  const selectedDateString = getDateStringForEntry(selectedEntry, selectedDaySummary, monthValue, referenceView?.inspectionDate);
   const selectedBoardCode = selectedEntry?.boardCode ?? getBoardCodeFromEntry(selectedDaySummary);
 
   const hasAnyInspectionValue = useMemo(
@@ -692,6 +709,13 @@ export default function ChecksheetSubmissionMonthlyPage() {
     }));
   };
 
+  const refetchMonthlyViews = () => {
+    bootstrapMonthlyQuery.refetch();
+    if (secondaryMode) {
+      secondaryMonthlyQuery.refetch();
+    }
+  };
+
   const handleSaveInspectionRecord = () => {
     const payload = {
       recordType: checksheetMode,
@@ -708,11 +732,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
     payload.note = buildInspectionNote(inspectionNote, selectedBoardCode);
 
     if (existingRecordId) {
-      updateInspectionForRecordMutation.mutate(payload);
+      updateInspectionForRecordMutation.mutate(payload, { onSuccess: refetchMonthlyViews });
       return;
     }
 
-    createInspectionMutation.mutate(payload);
+    createInspectionMutation.mutate(payload, { onSuccess: refetchMonthlyViews });
   };
 
   const updateRepairFormValue = (repairFormKey, patch) => {
@@ -962,6 +986,10 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     <TableCell
                       key={`${mode}-shift-${entry.key}`}
                       align="center"
+                      onClick={() => {
+                        setSelectedMode(mode);
+                        setSelectedEntryKey(entry.key);
+                      }}
                       sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
                     >
                       {daySummary?.recordId ? daySummary.shift || "-" : "-"}
@@ -981,6 +1009,10 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       <TableCell
                         key={`${mode}-approval-${step.id}-${entry.key}`}
                         align="center"
+                        onClick={() => {
+                          setSelectedMode(mode);
+                          setSelectedEntryKey(entry.key);
+                        }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
                       >
                         {approval ? (
@@ -1028,377 +1060,374 @@ export default function ChecksheetSubmissionMonthlyPage() {
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box sx={{ p: 3 }}>
         <Stack spacing={3}>
-        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-          <Box>
-            <Typography variant="h5" fontWeight={700}>Monthly Inspection Detail</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Daily results, shift, and simple day-by-day approvals are shown in one horizontal month sheet.
-            </Typography>
-          </Box>
-          <Button
-            variant="outlined"
-            startIcon={<ArrowBackOutlinedIcon />}
-            onClick={() => navigate(`/checksheets/submissions/${submissionId}`)}
-          >
-            Back To Detail
-          </Button>
-        </Stack>
-
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" spacing={2}>
-            <Stack spacing={1}>
-              <Typography variant="h6" fontWeight={700}>{monthlyView.machineCode}</Typography>
+          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+            <Box>
+              <Typography variant="h5" fontWeight={700}>Monthly Inspection Detail</Typography>
               <Typography variant="body2" color="text.secondary">
-                {monthlyView.location} | {monthlyView.lineName}
+                Daily results, shift, and simple day-by-day approvals are shown in one horizontal month sheet.
               </Typography>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">
-                <Typography variant="body2"><strong>Group:</strong> {monthlyView.groupCodes?.join(", ") || "-"}</Typography>
-                <Typography variant="body2"><strong>Status:</strong> {formatSubmissionStatus(monthlyView.status)}</Typography>
-              </Stack>
-            </Stack>
-
-            <Stack spacing={1.5} sx={{ minWidth: { lg: 260 } }}>
-              <DatePicker
-                label="Month"
-                views={["year", "month"]}
-                openTo="month"
-                value={monthValueToDate(monthValue)}
-                onChange={(value) => {
-                  const nextMonthValue = dateToMonthValue(value);
-                  if (nextMonthValue) {
-                    setMonthValue(nextMonthValue);
-                  }
-                }}
-                format="yyyy-MM"
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    size: "small"
-                  },
-                  mobilePaper: {
-                    sx: { mx: 1 }
-                  }
-                }}
-              />
-              <Stack direction="row" spacing={1} flexWrap="wrap">
-                <Chip label={`${summaryStats.filledDays}/${summaryStats.totalDays} filled`} variant="outlined" />
-                <Chip label={`${summaryStats.blankDays} blank`} variant="outlined" />
-                <Chip label={`Mode: ${checksheetMode}`} variant="outlined" />
-              </Stack>
-            </Stack>
+            </Box>
+            <Button
+              variant="outlined"
+              startIcon={<ArrowBackOutlinedIcon />}
+              onClick={() => navigate(`/checksheets/submissions/${submissionId}`)}
+            >
+              Back To Detail
+            </Button>
           </Stack>
-        </Paper>
-        <Typography variant="h6">{formatMonthTitle(monthValue)}</Typography>
-        {monthlyViews.map((entry) => renderModeSheet(entry.view))}
 
-        {isDraft ? (
-          <>
-            <Paper variant="outlined" sx={{ p: 3 }}>
-              <Typography variant="h6" sx={{ mb: 1 }}>Inspection Entry Editor</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                {inspectionEntryMode === "board" ? `Selected board code: ${selectedBoardCode || "-"}` : `Selected date: ${selectedDateString}`}
-              </Typography>
-              <ToggleButton
-                size="small"
-                value={selectedMode}
-                selected
-                sx={{ mb: 2 }}
-                onChange={() => setSelectedMode((current) => (current === "daily" ? "regular" : "daily"))}
-                disabled={!availableModes.includes(selectedMode === "daily" ? "regular" : "daily")}
-              >
-                Editing Mode: {selectedMode}
-              </ToggleButton>
+          <Paper variant="outlined" sx={{ p: 3 }}>
+            <Stack direction={{ xs: "column", lg: "row" }} justifyContent="space-between" spacing={2}>
+              <Stack spacing={1}>
+                <Typography variant="h6" fontWeight={700}>{monthlyView.machineCode}</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {monthlyView.location} | {monthlyView.lineName}
+                </Typography>
+                <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">
+                  <Typography variant="body2"><strong>Group:</strong> {monthlyView.groupCodes?.join(", ") || "-"}</Typography>
+                  <Typography variant="body2"><strong>Status:</strong> {formatSubmissionStatus(monthlyView.status)}</Typography>
+                </Stack>
+              </Stack>
 
-              <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
-                {(selectedMode === "regular" ? regularApprovalSteps : dailyApprovalSteps).map((step) => {
-                  const approval = selectedDaySummary?.approvals?.find((entry) => entry.stepId === step.id);
-                  return (
+              <Stack spacing={1.5} sx={{ minWidth: { lg: 260 } }}>
+                <DatePicker
+                  label="Month"
+                  views={["year", "month"]}
+                  openTo="month"
+                  value={monthValueToDate(monthValue)}
+                  onChange={(value) => {
+                    const nextMonthValue = dateToMonthValue(value);
+                    if (nextMonthValue) {
+                      setMonthValue(nextMonthValue);
+                    }
+                  }}
+                  format="yyyy-MM"
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      size: "small"
+                    },
+                    mobilePaper: {
+                      sx: { mx: 1 }
+                    }
+                  }}
+                />
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  <Chip label={`${summaryStats.filledDays}/${summaryStats.totalDays} filled`} variant="outlined" />
+                  <Chip label={`${summaryStats.blankDays} blank`} variant="outlined" />
+                  <Chip label={`Mode: ${checksheetMode}`} variant="outlined" />
+                </Stack>
+              </Stack>
+            </Stack>
+          </Paper>
+          <Typography variant="h6">{formatMonthTitle(monthValue)}</Typography>
+          {monthlyViews.map((entry) => renderModeSheet(entry.view))}
+
+          {isDraft ? (
+            <>
+              <Paper variant="outlined" sx={{ p: 3 }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>Inspection Entry Editor</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {inspectionEntryMode === "board" ? `Selected board code: ${selectedBoardCode || "-"}` : `Selected date: ${selectedDateString}`}
+                </Typography>
+                <ToggleButton
+                  size="small"
+                  value={selectedMode}
+                  selected
+                  sx={{ mb: 2 }}
+                  onChange={() => setSelectedMode((current) => (current === "daily" ? "regular" : "daily"))}
+                  disabled={!availableModes.includes(selectedMode === "daily" ? "regular" : "daily")}
+                >
+                  Editing Mode: {selectedMode}
+                </ToggleButton>
+
+                <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
+                  {(selectedMode === "regular" ? regularApprovalSteps : dailyApprovalSteps).map((step) => {
+                    const approval = selectedDaySummary?.approvals?.find((entry) => entry.stepId === step.id);
+                    return (
+                      <Chip
+                        key={`${selectedMode}-selected-step-${step.id}`}
+                        label={approval ? `${step.stepName}: ${getApproverDisplayName(approval)}` : `${step.stepName}: Pending`}
+                        color={approval ? "success" : "default"}
+                        variant="outlined"
+                      />
+                    );
+                  })}
+                  {(selectedMode === "regular" ? regularApprovalSteps : dailyApprovalSteps).length === 0 && (
                     <Chip
-                      key={`${selectedMode}-selected-step-${step.id}`}
-                      label={approval ? `${step.stepName}: ${getApproverDisplayName(approval)}` : `${step.stepName}: Pending`}
-                      color={approval ? "success" : "default"}
+                      label={`No ${selectedMode === "regular" ? "regular" : "daily"} approval steps`}
                       variant="outlined"
                     />
-                  );
-                })}
-                {(selectedMode === "regular" ? regularApprovalSteps : dailyApprovalSteps).length === 0 && (
-                  <Chip
-                    label={`No ${selectedMode === "regular" ? "regular" : "daily"} approval steps`}
-                    variant="outlined"
-                  />
-                )}
-              </Stack>
+                  )}
+                </Stack>
 
-              <TextField
-                select
-                label={inspectionEntryMode === "board" ? "Selected Board Code" : "Selected Day"}
-                value={selectedEntry?.key ?? ""}
-                onChange={(event) => setSelectedEntryKey(event.target.value)}
-                sx={{ mb: 2, minWidth: 180 }}
-                disabled={!isDraft || isInspectionMutationPending}
-              >
-                {entryColumns.map((entry) => (
-                  <MenuItem key={entry.key} value={entry.key}>{entry.label}</MenuItem>
-                ))}
-              </TextField>
+                <TextField
+                  select
+                  label={inspectionEntryMode === "board" ? "Selected Board Code" : "Selected Day"}
+                  value={selectedEntry?.key ?? ""}
+                  onChange={(event) => setSelectedEntryKey(event.target.value)}
+                  sx={{ mb: 2, minWidth: 180 }}
+                  disabled={!isDraft || isInspectionMutationPending}
+                >
+                  {entryColumns.map((entry) => (
+                    <MenuItem key={entry.key} value={entry.key}>{entry.label}</MenuItem>
+                  ))}
+                </TextField>
 
-              <TextField
-                select
-                label="Shift"
-                value={inspectionShift}
-                onChange={(event) => setInspectionShift(event.target.value)}
-                sx={{ mb: 2, ml: 1, minWidth: 180 }}
-                disabled={!isDraft || isInspectionMutationPending}
-              >
-                {["1", "2", "3"].map((shift) => (
-                  <MenuItem key={shift} value={shift}>Shift {shift}</MenuItem>
-                ))}
-              </TextField>
+                <TextField
+                  select
+                  label="Shift"
+                  value={inspectionShift}
+                  onChange={(event) => setInspectionShift(event.target.value)}
+                  sx={{ mb: 2, ml: 1, minWidth: 180 }}
+                  disabled={!isDraft || isInspectionMutationPending}
+                >
+                  {["1", "2", "3"].map((shift) => (
+                    <MenuItem key={shift} value={shift}>Shift {shift}</MenuItem>
+                  ))}
+                </TextField>
 
-              <TextField
-                label="Note"
-                value={inspectionNote}
-                onChange={(event) => setInspectionNote(event.target.value)}
-                multiline
-                minRows={2}
-                fullWidth
-                sx={{ mb: 2 }}
-                disabled={!isDraft || isInspectionMutationPending}
-              />
-              <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
-                <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 600 }}>
-                  <Table
-                    size="small"
-                    sx={{
-                      "& .MuiTableCell-root": {
-                        borderRight: 1,
-                        borderColor: "divider",
-                        verticalAlign: "top"
-                      },
-                      "& .MuiTableCell-root:last-of-type": { borderRight: 0 },
-                      "& .MuiTableHead-root .MuiTableCell-root": { fontWeight: 700 },
-                      "& .MuiTableCell-root[data-merged='true']": { verticalAlign: "middle" }
-                    }}
-                  >
-                    <TableHead>
-                      <TableRow>
-                        {displayColumns.map((column, columnIndex) => (
-                          <TableCell key={column.key} sx={{ minWidth: column.key === "itemNo" ? 80 : 180, pl: columnIndex === 0 ? 3 : 2 }}>
-                            {column.label}
-                          </TableCell>
-                        ))}
-                        <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
-                        <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>Remark</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {monthlyItems.map((item, rowIndex) => (
-                        <TableRow key={item.templateItemId} hover>
-                          {displayColumns.map((column, columnIndex) => {
-                            const mergeCell = monthlyRowSpanMap[column.key]?.[rowIndex];
+                <TextField
+                  label="Note"
+                  value={inspectionNote}
+                  onChange={(event) => setInspectionNote(event.target.value)}
+                  multiline
+                  minRows={2}
+                  fullWidth
+                  sx={{ mb: 2 }}
+                  disabled={!isDraft || isInspectionMutationPending}
+                />
+                <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
+                  <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 600 }}>
+                    <Table
+                      size="small"
+                      sx={{
+                        "& .MuiTableCell-root": {
+                          borderRight: 1,
+                          borderColor: "divider",
+                          verticalAlign: "top",
+                          whiteSpace: "normal",
+                          overflowWrap: "anywhere",
+                          wordBreak: "break-word"
+                        },
+                        "& .MuiTableCell-root:last-of-type": { borderRight: 0 },
+                        "& .MuiTableHead-root .MuiTableCell-root": { fontWeight: 700 },
+                        "& .MuiTableCell-root[data-merged='true']": { verticalAlign: "middle" }
+                      }}
+                    >
+                      <TableHead>
+                        <TableRow>
+                          {displayColumns.map((column, columnIndex) => (
+                            <TableCell key={column.key} sx={{ minWidth: column.key === "itemNo" ? 80 : 180, pl: columnIndex === 0 ? 3 : 2 }}>
+                              {column.label}
+                            </TableCell>
+                          ))}
+                          <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
+                          <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>Remark</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {monthlyItems.map((item, rowIndex) => (
+                          <TableRow key={item.templateItemId} hover>
+                            {displayColumns.map((column, columnIndex) => {
+                              const mergeCell = monthlyRowSpanMap[column.key]?.[rowIndex];
 
-                            if (mergeCell?.hidden) {
-                              return null;
-                            }
+                              if (mergeCell?.hidden) {
+                                return null;
+                              }
 
-                            return (
-                              <TableCell
-                                key={`${item.templateItemId}-${column.key}`}
-                                rowSpan={mergeCell?.rowSpan ?? 1}
-                                data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
-                                sx={{
-                                  verticalAlign: "middle",
-                                  whiteSpace: column.key === "itemName" || column.key === "method" || column.key === "criteria" ? "normal" : "nowrap",
-                                  wordBreak: "break-word",
-                                  pl: columnIndex === 0 ? 3 : 2
-                                }}
-                              >
-                                {(mergeCell?.rowSpan ?? 1) > 1 ? (
-                                  <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
-                                    {item.itemData?.[column.key] || "-"}
-                                  </Box>
-                                ) : (
-                                  item.itemData?.[column.key] || "-"
-                                )}
-                              </TableCell>
-                            );
-                          })}
-                          <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
-                            {item.valueType === "fixed" ? (
-                              <ButtonGroup
-                                size="small"
-                                disabled={!isDraft || isInspectionMutationPending}
-                                sx={{ flexShrink: 0 }}
-                              >
-                                {FIXED_OPTIONS.map((option) => {
-                                  const isSelected = (entryValues[item.templateItemId]?.resultValue ?? "") === option;
-                                  return (
-                                    <Button
-                                      key={`${item.templateItemId}-${option}`}
-                                      variant={isSelected ? "contained" : "outlined"}
-                                      onClick={() => handleInspectionValueChange(item.templateItemId, { resultValue: option })}
-                                      sx={{
-                                        px: 1,
-                                        fontSize: 12,
-                                        fontWeight: 600,
-                                        minWidth: 40,
-                                        whiteSpace: "nowrap"
-                                      }}
-                                    >
-                                      {option}
-                                    </Button>
-                                  );
-                                })}
-                              </ButtonGroup>
-                            ) : (
+                              return (
+                                <TableCell
+                                  key={`${item.templateItemId}-${column.key}`}
+                                  rowSpan={mergeCell?.rowSpan ?? 1}
+                                  data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
+                                  sx={{
+                                    verticalAlign: "middle",
+                                    whiteSpace: "normal",
+                                    overflowWrap: "anywhere",
+                                    wordBreak: "break-word",
+                                    pl: columnIndex === 0 ? 3 : 2
+                                  }}
+                                >
+                                  {(mergeCell?.rowSpan ?? 1) > 1 ? (
+                                    <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
+                                      {item.itemData?.[column.key] || "-"}
+                                    </Box>
+                                  ) : (
+                                    item.itemData?.[column.key] || "-"
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                            <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
+                              {item.valueType === "fixed" ? (
+                                <ButtonGroup
+                                  size="small"
+                                  disabled={!isDraft || isInspectionMutationPending}
+                                  sx={{ flexShrink: 0 }}
+                                >
+                                  {FIXED_OPTIONS.map((option) => {
+                                    const isSelected = (entryValues[item.templateItemId]?.resultValue ?? "") === option;
+                                    return (
+                                      <Button
+                                        key={`${item.templateItemId}-${option}`}
+                                        variant={isSelected ? "contained" : "outlined"}
+                                        onClick={() => handleInspectionValueChange(item.templateItemId, { resultValue: option })}
+                                        sx={{
+                                          px: 1,
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                          minWidth: 40,
+                                          whiteSpace: "nowrap"
+                                        }}
+                                      >
+                                        {option}
+                                      </Button>
+                                    );
+                                  })}
+                                </ButtonGroup>
+                              ) : (
+                                <TextField
+                                  value={entryValues[item.templateItemId]?.resultValue ?? ""}
+                                  onChange={(e) => handleInspectionValueChange(item.templateItemId, { resultValue: e.target.value })}
+                                  placeholder="Enter value"
+                                  size="small"
+                                  fullWidth
+                                  disabled={!isDraft || isInspectionMutationPending}
+                                />
+                              )}
+                            </TableCell>
+                            <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>
                               <TextField
-                                value={entryValues[item.templateItemId]?.resultValue ?? ""}
-                                onChange={(e) => handleInspectionValueChange(item.templateItemId, { resultValue: e.target.value })}
-                                placeholder="Enter value"
+                                value={entryValues[item.templateItemId]?.remark ?? ""}
+                                onChange={(e) => handleInspectionValueChange(item.templateItemId, { remark: e.target.value })}
+                                placeholder="Remark"
                                 size="small"
                                 fullWidth
                                 disabled={!isDraft || isInspectionMutationPending}
                               />
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>
-                            <TextField
-                              value={entryValues[item.templateItemId]?.remark ?? ""}
-                              onChange={(e) => handleInspectionValueChange(item.templateItemId, { remark: e.target.value })}
-                              placeholder="Remark"
-                              size="small"
-                              fullWidth
-                              disabled={!isDraft || isInspectionMutationPending}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Box>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
 
-              <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end" spacing={2} sx={{ mt: 2 }}>
-                {isDraft && existingRecordId && (
+                <Stack direction={{ xs: "column", md: "row" }} justifyContent="flex-end" spacing={2} sx={{ mt: 2 }}>
+                  {isDraft && existingRecordId && (
+                    <Button
+                      color="error"
+                      variant="outlined"
+                      disabled={deleteInspectionMutation.isPending}
+                      onClick={() => setDeleteTarget({ type: "inspection", id: existingRecordId })}
+                    >
+                      {inspectionEntryMode === "board" ? "Delete Selected Board Entry" : "Delete Selected Day"}
+                    </Button>
+                  )}
                   <Button
-                    color="error"
-                    variant="outlined"
-                    disabled={deleteInspectionMutation.isPending}
-                    onClick={() => setDeleteTarget({ type: "inspection", id: existingRecordId })}
+                    variant="contained"
+                    disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
+                    onClick={handleSaveInspectionRecord}
                   >
-                    {inspectionEntryMode === "board" ? "Delete Selected Board Entry" : "Delete Selected Day"}
+                    {isInspectionMutationPending ? "Saving..." : existingRecordId ? "Save Entry Changes" : "Save Entry Record"}
                   </Button>
-                )}
-                <Button
-                  variant="contained"
-                  disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
-                  onClick={handleSaveInspectionRecord}
-                >
-                  {isInspectionMutationPending ? "Saving..." : existingRecordId ? "Save Entry Changes" : "Save Entry Record"}
-                </Button>
-              </Stack>
-            </Paper>
-          </>
-        ) : (
+                </Stack>
+              </Paper>
+            </>
+          ) : null}
+
           <Paper variant="outlined" sx={{ p: 3 }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>Editing Locked</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Inspection Entry Editor is hidden because this month-end submission has already been submitted.
-            </Typography>
-          </Paper>
-        )}
+            <Typography variant="h6" sx={{ mb: 2 }}>Repair Records</Typography>
+            <Stack spacing={2}>
+              {availableRepairForms.map((repairFormDefinition) => {
+                const records = repairRecordsByFormKey[repairFormDefinition.formKey] ?? [];
 
-        <Paper variant="outlined" sx={{ p: 3 }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>Repair Records</Typography>
-          <Stack spacing={2}>
-            {availableRepairForms.map((repairFormDefinition) => {
-              const records = repairRecordsByFormKey[repairFormDefinition.formKey] ?? [];
-
-              return (
-                <Paper key={repairFormDefinition.formKey} variant="outlined" sx={{ p: 2.5 }}>
-                  <Stack spacing={2}>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
-                      <Box>
-                        <Typography variant="h6">{`${repairFormDefinition.sortOrder}. ${repairFormDefinition.title}`}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          Review saved repair records and register a new one when needed.
-                        </Typography>
-                      </Box>
-                      <Button
-                        variant="contained"
-                        disabled={!isDraft}
-                        onClick={() => setActiveRepairDialogKey(repairFormDefinition.formKey)}
-                      >
-                        Add Repair Record
-                      </Button>
-                    </Stack>
-                    <Stack spacing={1.5}>
-                      <Typography variant="subtitle2">Saved Records</Typography>
-                      {records.map((record) => (
-                        <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
-                          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                            <Box>
-                              <Typography fontWeight={600}>{record.damageDescription}</Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                {record.repairDescription}
-                              </Typography>
-                              {record.note && (
-                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                                  Note: {record.note}
+                return (
+                  <Paper key={repairFormDefinition.formKey} variant="outlined" sx={{ p: 2.5 }}>
+                    <Stack spacing={2}>
+                      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
+                        <Box>
+                          <Typography variant="h6">{`${repairFormDefinition.sortOrder}. ${repairFormDefinition.title}`}</Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            Review saved repair records and register a new one when needed.
+                          </Typography>
+                        </Box>
+                        <Button
+                          variant="contained"
+                          disabled={!isDraft}
+                          onClick={() => setActiveRepairDialogKey(repairFormDefinition.formKey)}
+                        >
+                          Add Repair Record
+                        </Button>
+                      </Stack>
+                      <Stack spacing={1.5}>
+                        <Typography variant="subtitle2">Saved Records</Typography>
+                        {records.map((record) => (
+                          <Paper key={record.id} variant="outlined" sx={{ p: 2 }}>
+                            <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+                              <Box>
+                                <Typography fontWeight={600}>{record.damageDescription}</Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                                  {record.repairDescription}
                                 </Typography>
-                              )}
-                              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
-                                <Chip size="small" variant="outlined" label={record.repairDate || "No repair date"} />
-                                <Chip size="small" variant="outlined" label={`By ${record.repairedByName || "-"}`} />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByAssyUserId ? "success" : "default"}
-                                  variant={record.checkedByAssyUserId ? "filled" : "outlined"}
-                                  label={`ASSY ${record.checkedByAssyName || "Pending"}`}
-                                />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByQaUserId ? "success" : "default"}
-                                  variant={record.checkedByQaUserId ? "filled" : "outlined"}
-                                  label={`QA ${record.checkedByQaName || "Pending"}`}
-                                />
-                                <Chip
-                                  size="small"
-                                  color={record.checkedByCoordinatorUserId ? "success" : "default"}
-                                  variant={record.checkedByCoordinatorUserId ? "filled" : "outlined"}
-                                  label={`MTA ${record.checkedByCoordinatorName || "Pending"}`}
-                                />
+                                {record.note && (
+                                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                                    Note: {record.note}
+                                  </Typography>
+                                )}
+                                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1.5 }}>
+                                  <Chip size="small" variant="outlined" label={record.repairDate || "No repair date"} />
+                                  <Chip size="small" variant="outlined" label={`By ${record.repairedByName || "-"}`} />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByAssyUserId ? "success" : "default"}
+                                    variant={record.checkedByAssyUserId ? "filled" : "outlined"}
+                                    label={`ASSY ${record.checkedByAssyName || "Pending"}`}
+                                  />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByQaUserId ? "success" : "default"}
+                                    variant={record.checkedByQaUserId ? "filled" : "outlined"}
+                                    label={`QA ${record.checkedByQaName || "Pending"}`}
+                                  />
+                                  <Chip
+                                    size="small"
+                                    color={record.checkedByCoordinatorUserId ? "success" : "default"}
+                                    variant={record.checkedByCoordinatorUserId ? "filled" : "outlined"}
+                                    label={`MTA ${record.checkedByCoordinatorName || "Pending"}`}
+                                  />
+                                </Stack>
+                              </Box>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
+                                  <Button
+                                    variant="outlined"
+                                    disabled={approveRepairMutation.isPending}
+                                    onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                                  >
+                                    Approve Next Level
+                                  </Button>
+                                )}
+                                {isDraft && (
+                                  <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
+                                    <DeleteOutlineIcon />
+                                  </IconButton>
+                                )}
                               </Stack>
-                            </Box>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
-                                <Button
-                                  variant="outlined"
-                                  disabled={approveRepairMutation.isPending}
-                                  onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
-                                >
-                                  Approve Next Level
-                                </Button>
-                              )}
-                              {isDraft && (
-                                <IconButton color="error" onClick={() => setDeleteTarget({ type: "repair", id: record.id })}>
-                                  <DeleteOutlineIcon />
-                                </IconButton>
-                              )}
                             </Stack>
-                          </Stack>
-                        </Paper>
-                      ))}
-                      {records.length === 0 && (
-                        <Typography variant="body2" color="text.secondary">No repair records yet for this section.</Typography>
-                      )}
+                          </Paper>
+                        ))}
+                        {records.length === 0 && (
+                          <Typography variant="body2" color="text.secondary">No repair records yet for this section.</Typography>
+                        )}
+                      </Stack>
                     </Stack>
-                  </Stack>
-                </Paper>
-              );
-            })}
-          </Stack>
-        </Paper>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          </Paper>
         </Stack>
 
         <ConfirmationDialog

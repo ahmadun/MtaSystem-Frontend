@@ -310,7 +310,7 @@ function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission })
           }
 
           try {
-            await scanner.start(candidate, scanConfig, onScanSuccess, () => {});
+            await scanner.start(candidate, scanConfig, onScanSuccess, () => { });
             started = true;
           } catch {
             // try next startup strategy
@@ -1442,7 +1442,7 @@ export default function ChecksheetSubmissionsPage() {
                 ))}
                 {submissions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 6, px: 3 }}>No checksheet transactions yet.</TableCell>
+                    <TableCell colSpan={7} align="center" sx={{ py: 6, px: 3 }}>No checksheet transactions yet.</TableCell>
                   </TableRow>
                 )}
               </TableBody>

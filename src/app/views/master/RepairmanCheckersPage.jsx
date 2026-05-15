@@ -41,6 +41,19 @@ const LEVEL_OPTIONS = [
   { value: "mta", label: "MTA / Coordinator" }
 ];
 
+function getUserCode(user) {
+  return user?.employeeCode || user?.username || "-";
+}
+
+function getUserDisplayName(user) {
+  const userCode = getUserCode(user);
+  if (user?.fullName || user?.employeeName) {
+    return `${userCode} - ${user.fullName || user.employeeName}`;
+  }
+
+  return userCode;
+}
+
 function RepairmanCheckerDialog({ open, mode, initialData, userOptions, onClose, onSubmit, isPending }) {
   const [form, setForm] = useState({
     userId: initialData?.userId ?? "",
@@ -69,7 +82,7 @@ function RepairmanCheckerDialog({ open, mode, initialData, userOptions, onClose,
           >
             {userOptions.map((user) => (
               <MenuItem key={user.userId} value={user.userId}>
-                {user.fullName || user.username} ({user.username})
+                {getUserDisplayName(user)}
               </MenuItem>
             ))}
           </TextField>
@@ -108,15 +121,26 @@ function RepairmanCheckerDialog({ open, mode, initialData, userOptions, onClose,
 export default function RepairmanCheckersPage() {
   const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [filters, setFilters] = useState({
+    checkerLevel: ""
+  });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const { data, isLoading, isError, error, isFetching } = useRepairmanCheckers({ page, pageSize });
+  const { data, isLoading, isError, error, isFetching } = useRepairmanCheckers({
+    page,
+    pageSize,
+    checkerLevel: filters.checkerLevel || undefined
+  });
   const checkers = useMemo(() => data?.items ?? [], [data?.items]);
   const totalCount = data?.totalCount ?? 0;
   const { data: users = [] } = useUserOptions({ top: 200 });
   const createChecker = useCreateRepairmanChecker();
   const updateChecker = useUpdateRepairmanChecker(dialogState.data?.id);
   const deleteChecker = useDeleteRepairmanChecker();
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.checkerLevel]);
 
   const columns = useMemo(
     () => [
@@ -125,8 +149,8 @@ export default function RepairmanCheckersPage() {
         header: "User",
         cell: ({ row }) => (
           <>
-            <Typography fontWeight={600}>{row.original.fullName || row.original.username}</Typography>
-            <Typography variant="caption" color="text.secondary">{row.original.username}</Typography>
+            <Typography fontWeight={600}>{getUserCode(row.original)}</Typography>
+            <Typography variant="caption" color="text.secondary">{row.original.fullName || row.original.username}</Typography>
           </>
         )
       },
@@ -194,6 +218,26 @@ export default function RepairmanCheckersPage() {
             Add Checker
           </Button>
         </Stack>
+
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+            <TextField
+              select
+              size="small"
+              label="Level"
+              value={filters.checkerLevel}
+              onChange={(event) => setFilters((current) => ({ ...current, checkerLevel: event.target.value }))}
+              sx={{ minWidth: 220, maxWidth: 280 }}
+            >
+              <MenuItem value="">All</MenuItem>
+              {LEVEL_OPTIONS.map((option) => (
+                <MenuItem key={option.value} value={option.value}>
+                  {option.label}
+                </MenuItem>
+              ))}
+            </TextField>
+          </Stack>
+        </Paper>
 
         <Box>
           <TableContainer component={Paper} variant="outlined">
