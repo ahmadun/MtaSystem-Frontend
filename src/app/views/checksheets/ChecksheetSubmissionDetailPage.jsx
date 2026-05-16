@@ -209,7 +209,7 @@ function normalizeBoardCode(value) {
   return String(value ?? "").trim().toUpperCase();
 }
 
-function buildInspectionNote(note, boardCode) {
+function buildInspectionNote(note) {
   const cleanNote = String(note ?? "").trim();
   return cleanNote || null;
 }
@@ -452,6 +452,7 @@ export default function ChecksheetSubmissionDetailPage() {
     (isOwner || hasRespondedToCurrentApprovalRequest);
   const machines = useMemo(() => machinesPage?.items ?? [], [machinesPage?.items]);
   const currentMachine = machines.find((item) => item.machineCode === submission?.machineCode);
+  const multiProductNo = submission?.multiProductNo || currentMachine?.multiProductNo || "-";
   const machineModes = useMemo(() => {
     const modes = currentMachine?.modes?.length ? currentMachine.modes : [submission?.checksheetMode ?? "daily"];
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
@@ -594,7 +595,7 @@ export default function ChecksheetSubmissionDetailPage() {
       inspectionDate: resolvedInspectionDate,
       boardCode: inspectionEntryMode === "board" ? normalizeBoardCode(boardCode) || null : null,
       shift: inspectionShift || null,
-      note: buildInspectionNote(inspectionNote, boardCode),
+      note: buildInspectionNote(inspectionNote),
       values: templateItems
         .map((item) => ({
           templateItemId: item.id,
@@ -674,7 +675,7 @@ export default function ChecksheetSubmissionDetailPage() {
               <Box>
                 <Typography variant="h5" fontWeight={700}>{submission.machineCode}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {submission.location} | {submission.lineName}
+                  {submission.location} | {submission.lineName} | {multiProductNo}
                 </Typography>
               </Box>
               <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -842,7 +843,10 @@ export default function ChecksheetSubmissionDetailPage() {
                     "& .MuiTableCell-root": {
                       borderRight: 1,
                       borderColor: "divider",
-                      verticalAlign: "top"
+                      verticalAlign: "top",
+                      whiteSpace: "normal",
+                      overflowWrap: "normal",
+                      wordBreak: "normal"
                     },
                     "& .MuiTableCell-root:last-of-type": {
                       borderRight: 0
@@ -878,10 +882,13 @@ export default function ChecksheetSubmissionDetailPage() {
                             <TableCell
                               key={`${item.id}-${column.columnKey}`}
                               rowSpan={mergeCell?.rowSpan ?? 1}
-                              data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}  // ✅ add this
+                              data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                               sx={{
                                 pl: columnIndex === 0 ? 3 : 2,
-                                verticalAlign: "middle"
+                                verticalAlign: "middle",
+                                whiteSpace: "normal",
+                                overflowWrap: "normal",
+                                wordBreak: "normal"
                               }}
                             >
                               {item.data?.[column.columnKey] || "-"}

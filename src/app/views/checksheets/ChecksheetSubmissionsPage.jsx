@@ -1138,6 +1138,10 @@ export default function ChecksheetSubmissionsPage() {
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
   const { data: areas = [] } = useChecksheetAreas();
+  const selectedChecksheetMaster = useMemo(
+    () => checksheetMasters.find((item) => String(item.id) === String(filters.checksheetMasterId)) ?? null,
+    [checksheetMasters, filters.checksheetMasterId]
+  );
   const selectedLine = useMemo(
     () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
     [filters.lineCode, lines]
@@ -1336,21 +1340,22 @@ export default function ChecksheetSubmissionsPage() {
             </Typography>
 
             <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
-              <TextField
-                select
-                size="small"
-                label="Checksheet Master"
-                value={filters.checksheetMasterId}
-                onChange={(event) => setFilters((current) => ({ ...current, checksheetMasterId: event.target.value }))}
-                sx={{ minWidth: 280, maxWidth: 360 }}
-              >
-                <MenuItem value="">All</MenuItem>
-                {checksheetMasters.map((item) => (
-                  <MenuItem key={item.id} value={item.id}>
-                    {item.processCode} - {item.processName} - {item.checksheetName}
-                  </MenuItem>
-                ))}
-              </TextField>
+              <Autocomplete
+                options={checksheetMasters}
+                value={selectedChecksheetMaster}
+                onChange={(_, option) =>
+                  setFilters((current) => ({
+                    ...current,
+                    checksheetMasterId: option?.id ?? ""
+                  }))
+                }
+                isOptionEqualToValue={(option, value) => String(option.id) === String(value.id)}
+                getOptionLabel={(option) =>
+                  option?.id ? `${option.processCode} - ${option.processName} - ${option.checksheetName}` : ""
+                }
+                sx={{ minWidth: 420, maxWidth: 560, flexGrow: 1 }}
+                renderInput={(params) => <TextField {...params} size="small" label="Checksheet Master" placeholder="All" />}
+              />
 
               <Autocomplete
                 options={lines}

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Alert,
-  Avatar,
   Box,
   Button,
   Chip,
@@ -144,7 +143,7 @@ function normalizeBoardCode(value) {
   return String(value ?? "").trim().toUpperCase();
 }
 
-function buildInspectionNote(note, boardCode) {
+function buildInspectionNote(note) {
   const cleanNote = String(note ?? "").trim();
   return cleanNote || null;
 }
@@ -389,20 +388,6 @@ function stepIncludesCurrentUser(step, userId) {
   }
 
   return (step?.approvers ?? []).some((approver) => Number(approver?.userId) === normalizedUserId);
-}
-
-function getApproverInitials(person) {
-  const name = getApproverDisplayName(person);
-  if (!name || name === "-") {
-    return "?";
-  }
-
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("") || "?";
 }
 
 function renderApprovalChip(person) {
@@ -729,7 +714,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
     payload.inspectionDate = selectedDateString;
     payload.boardCode = inspectionEntryMode === "board" ? selectedBoardCode || null : null;
-    payload.note = buildInspectionNote(inspectionNote, selectedBoardCode);
+    payload.note = buildInspectionNote(inspectionNote);
 
     if (existingRecordId) {
       updateInspectionForRecordMutation.mutate(payload, { onSuccess: refetchMonthlyViews });
@@ -1081,7 +1066,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
               <Stack spacing={1}>
                 <Typography variant="h6" fontWeight={700}>{monthlyView.machineCode}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {monthlyView.location} | {monthlyView.lineName}
+                  {monthlyView.location} | {monthlyView.lineName} | {monthlyView.multiProductNo || "-"}
                 </Typography>
                 <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">
                   <Typography variant="body2"><strong>Group:</strong> {monthlyView.groupCodes?.join(", ") || "-"}</Typography>

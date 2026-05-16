@@ -663,10 +663,30 @@ export default function ChecksheetTemplatesPage() {
         id: "template",
         header: "Template",
         cell: ({ row }) => (
-          <>
-            <Typography fontWeight={600}>{row.original.name}</Typography>
-            <Typography variant="caption" color="text.secondary">{row.original.description || "No description"}</Typography>
-          </>
+          <Box sx={{ minWidth: 280, maxWidth: 420 }}>
+            <Typography
+              fontWeight={600}
+              sx={{
+                whiteSpace: "normal",
+                overflowWrap: "normal",
+                wordBreak: "normal"
+              }}
+            >
+              {row.original.name}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{
+                display: "block",
+                whiteSpace: "normal",
+                overflowWrap: "normal",
+                wordBreak: "normal"
+              }}
+            >
+              {row.original.description || "No description"}
+            </Typography>
+          </Box>
         )
       },
       {
@@ -776,6 +796,7 @@ export default function ChecksheetTemplatesPage() {
                     {headerGroup.headers.map((header, index) => {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === headerGroup.headers.length - 1;
+                      const isTemplateColumn = header.column.id === "template";
 
                       return (
                         <TableCell
@@ -783,7 +804,12 @@ export default function ChecksheetTemplatesPage() {
                           align={isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
-                            pr: isLastColumn ? 3 : 2
+                            pr: isLastColumn ? 3 : 2,
+                            ...(isTemplateColumn ? { minWidth: 320, width: 360 } : {}),
+                            whiteSpace: "normal",
+                            overflowWrap: "normal",
+                            wordBreak: "normal",
+                            verticalAlign: "top"
                           }}
                         >
                           {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
@@ -799,6 +825,7 @@ export default function ChecksheetTemplatesPage() {
                     {row.getVisibleCells().map((cell, index) => {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === row.getVisibleCells().length - 1;
+                      const isTemplateColumn = cell.column.id === "template";
 
                       return (
                         <TableCell
@@ -806,7 +833,12 @@ export default function ChecksheetTemplatesPage() {
                           align={isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
-                            pr: isLastColumn ? 3 : 2
+                            pr: isLastColumn ? 3 : 2,
+                            ...(isTemplateColumn ? { minWidth: 320, width: 360 } : {}),
+                            whiteSpace: "normal",
+                            overflowWrap: "normal",
+                            wordBreak: "normal",
+                            verticalAlign: "top"
                           }}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
