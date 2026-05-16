@@ -5,6 +5,11 @@ export const getChecksheetTemplates = async (params) => {
   return response.data;
 };
 
+export const getDashboard = async (params) => {
+  const response = await apiClient.get("/dashboard", { params });
+  return response.data;
+};
+
 export const getChecksheetMasters = async () => {
   const response = await apiClient.get("/checksheet-masters");
   return response.data;

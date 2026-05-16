@@ -19,6 +19,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
@@ -32,6 +33,19 @@ import {
   usePendingRepairRecords
 } from "app/hooks/useChecksheets";
 
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+}
+
 export default function PendingRepairApprovalsPage() {
   const navigate = useNavigate();
   const approveMutation = useApproveRepairRecord();
@@ -43,6 +57,8 @@ export default function PendingRepairApprovalsPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([{ id: "entryDate", desc: true }]);
+  const activeSort = sorting[0];
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
   const { data: areas = [] } = useChecksheetAreas();
@@ -55,9 +71,11 @@ export default function PendingRepairApprovalsPage() {
     [filters.lineCode, lines]
   );
 
-  const { data, isLoading, isError, error } = usePendingRepairRecords({
+  const { data, isLoading, isError, error, isFetching } = usePendingRepairRecords({
     page,
     pageSize,
+    sortBy: activeSort?.id,
+    sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
     location: filters.location || undefined
@@ -69,10 +87,15 @@ export default function PendingRepairApprovalsPage() {
     setPage(1);
   }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
   const columns = useMemo(
     () => [
       {
         id: "machine",
+        enableSorting: false,
         header: "Machine",
         cell: ({ row }) => (
           <Stack spacing={0.5}>
@@ -84,7 +107,28 @@ export default function PendingRepairApprovalsPage() {
         )
       },
       {
+        id: "entryDate",
+        accessorKey: "createdAt",
+        header: "Entry Date",
+        cell: ({ getValue }) => (
+          <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+            {formatDateTime(getValue())}
+          </Typography>
+        )
+      },
+      {
+        id: "lastUpdate",
+        accessorKey: "updatedAt",
+        header: "Last Update",
+        cell: ({ getValue }) => (
+          <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+            {formatDateTime(getValue())}
+          </Typography>
+        )
+      },
+      {
         id: "repair",
+        enableSorting: false,
         header: "Repair",
         cell: ({ row }) => (
           <Stack spacing={0.75}>
@@ -97,6 +141,7 @@ export default function PendingRepairApprovalsPage() {
       },
       {
         id: "currentApproval",
+        enableSorting: false,
         header: "Current Approval",
         cell: ({ row }) => (
           <Chip
@@ -109,6 +154,7 @@ export default function PendingRepairApprovalsPage() {
       },
       {
         id: "approvedBy",
+        enableSorting: false,
         header: "Approved By",
         cell: ({ row }) => (
           <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ minWidth: 240 }}>
@@ -136,6 +182,7 @@ export default function PendingRepairApprovalsPage() {
       },
       {
         id: "actions",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "right", pr: 1.5 }}>Actions</Box>,
         cell: ({ row }) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pr: 1.5 }}>
@@ -153,15 +200,19 @@ export default function PendingRepairApprovalsPage() {
   const table = useReactTable({
     data: records,
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    rowCount: totalCount,
     state: {
+      sorting,
       pagination: {
         pageIndex: Math.max(0, page - 1),
         pageSize
       }
-    }
+    },
+    onSortingChange: setSorting,
+    manualSorting: true,
+    enableSortingRemoval: false,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    rowCount: totalCount
   });
 
   return (
@@ -241,8 +292,12 @@ export default function PendingRepairApprovalsPage() {
         ) : isError ? (
           <Alert severity="error">{error.message}</Alert>
         ) : (
-          <TableContainer component={Paper} variant="outlined">
-            <Table>
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s", overflowX: "auto" }}
+          >
+            <Table sx={{ minWidth: 1200 }}>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id}>
@@ -259,7 +314,17 @@ export default function PendingRepairApprovalsPage() {
                             pr: isLastColumn ? 3 : 2
                           }}
                         >
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <TableSortLabel
+                              active={header.column.getIsSorted() !== false}
+                              direction={header.column.getIsSorted() || "asc"}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableSortLabel>
+                          ) : (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          )}
                         </TableCell>
                       );
                     })}

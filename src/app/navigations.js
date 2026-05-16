@@ -1,6 +1,11 @@
 const navigations = [
   {
-    name: "Checksheets",
+    name: "Dashboard",
+    icon: "dashboard",
+    path: "/dashboard"
+  },
+  {
+    name: "CheckSheets",
     icon: "fact_check",
     children: [
       {
@@ -29,15 +34,16 @@ const navigations = [
         iconText: "PA",
         path: "/approvals/pending"
       },
-      {
-        name: "Approval Templates",
-        iconText: "AT",
-        path: "/approvals/templates"
-      },
+
       {
         name: "Pending Repairs",
         iconText: "PR",
         path: "/approvals/repairs"
+      },
+      {
+        name: "Approval Templates",
+        iconText: "AT",
+        path: "/approvals/templates"
       }
     ]
   },

@@ -12,6 +12,7 @@ import {
   approveDailyInspectionStep,
   approveRepairRecord,
   createApprovalTemplate,
+  getDashboard,
   getChecksheetAreas,
   getChecksheetMasters,
   getChecksheetGroups,
@@ -61,6 +62,8 @@ import {
 
 export const CHECKSHEET_KEYS = {
   all: ["checksheets"],
+  templatesBase: ["checksheets", "templates"],
+  dashboard: (params) => ["dashboard", params],
   templates: (params) => ["checksheets", "templates", params],
   template: (id) => ["checksheets", "templates", id],
   submissions: (params) => ["checksheets", "submissions", params],
@@ -74,6 +77,15 @@ export const CHECKSHEET_KEYS = {
   pendingApprovals: (params) => ["checksheets", "pending-approvals", params],
   pendingRepairs: (params) => ["checksheets", "pending-repairs", params]
 };
+
+export const useDashboard = (params = {}, options = {}) =>
+  useQuery({
+    queryKey: CHECKSHEET_KEYS.dashboard(params),
+    queryFn: () => getDashboard(params).then((res) => res.data),
+    keepPreviousData: true,
+    staleTime: 30_000,
+    ...options
+  });
 
 export const useChecksheetMasters = (options = {}) =>
   useQuery({
@@ -245,6 +257,7 @@ export const useChecksheetTemplates = (params = {}, options = {}) =>
     queryKey: CHECKSHEET_KEYS.templates(params),
     queryFn: () => getChecksheetTemplates(params).then((res) => res.data),
     keepPreviousData: true,
+    refetchOnMount: "always",
     staleTime: 30_000,
     ...options
   });
@@ -259,13 +272,13 @@ export const useChecksheetTemplate = (id, options = {}) =>
   });
 
 export const useCreateChecksheetTemplate = () =>
-  useSnackbarMutation(createChecksheetTemplate, [CHECKSHEET_KEYS.all], "Checksheet template created successfully");
+  useSnackbarMutation(createChecksheetTemplate, [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase], "Checksheet template created successfully");
 
 export const useUpdateChecksheetTemplate = (id) =>
-  useSnackbarMutation((data) => updateChecksheetTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.template(id)], "Checksheet template updated successfully");
+  useSnackbarMutation((data) => updateChecksheetTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase, CHECKSHEET_KEYS.template(id)], "Checksheet template updated successfully");
 
 export const useDeleteChecksheetTemplate = () =>
-  useSnackbarMutation(deleteChecksheetTemplate, [CHECKSHEET_KEYS.all], "Checksheet template deleted successfully");
+  useSnackbarMutation(deleteChecksheetTemplate, [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase], "Checksheet template deleted successfully");
 
 export const useChecksheetSubmissions = (params = {}, options = {}) =>
   useQuery({

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -18,12 +18,26 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import { useNavigate } from "react-router-dom";
 import { usePendingApprovalRequests, useRespondApprovalRequest } from "app/hooks/useChecksheets";
+
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+}
 
 export default function PendingApprovalsPage() {
   const navigate = useNavigate();
@@ -33,24 +47,71 @@ export default function PendingApprovalsPage() {
   const [comment, setComment] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([{ id: "requestedAt", desc: true }]);
+  const activeSort = sorting[0];
 
-  const { data, isLoading, isError, error, isFetching } = usePendingApprovalRequests({ page, pageSize });
+  const { data, isLoading, isError, error, isFetching } = usePendingApprovalRequests({
+    page,
+    pageSize,
+    sortBy: activeSort?.id,
+    sortDirection: activeSort?.desc === false ? "asc" : "desc"
+  });
   const items = useMemo(() => data?.data ?? [], [data?.data]);
   const totalCount = data?.total ?? 0;
+
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
 
   const columns = useMemo(
     () => [
       {
         accessorKey: "checksheetTitle",
-        header: "Checksheet"
+        header: "Checksheet",
+        enableSorting: false
+      },
+      {
+        id: "checksheetName",
+        header: "Checksheet Name",
+        enableSorting: false,
+        cell: ({ row }) => (
+          <Stack spacing={0.25} sx={{ maxWidth: 320 }}>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              sx={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "break-word" }}
+            >
+              {[row.original.processCode, row.original.processName].filter(Boolean).join(" - ") || "-"}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "break-word" }}
+            >
+              {row.original.checksheetName || "-"}
+            </Typography>
+          </Stack>
+        )
       },
       {
         accessorKey: "requestTitle",
-        header: "Request"
+        header: "Request",
+        enableSorting: false
+      },
+      {
+        id: "requestedAt",
+        accessorKey: "requestCreatedAt",
+        header: "Requested At",
+        cell: ({ getValue }) => (
+          <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+            {formatDateTime(getValue())}
+          </Typography>
+        )
       },
       {
         id: "step",
         header: "Step",
+        enableSorting: false,
         cell: ({ row }) => (
           <Stack spacing={0.25}>
             <Typography fontWeight={600}>{row.original.stepName}</Typography>
@@ -63,6 +124,7 @@ export default function PendingApprovalsPage() {
       {
         id: "mode",
         header: "Mode",
+        enableSorting: false,
         cell: ({ row }) => (
           <Chip
             size="small"
@@ -74,6 +136,7 @@ export default function PendingApprovalsPage() {
       },
       {
         id: "actions",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "right", pr: 1.5 }}>Actions</Box>,
         cell: ({ row }) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pr: 1.5 }}>
@@ -91,15 +154,19 @@ export default function PendingApprovalsPage() {
   const table = useReactTable({
     data: items,
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    rowCount: totalCount,
     state: {
+      sorting,
       pagination: {
         pageIndex: Math.max(0, page - 1),
         pageSize
       }
-    }
+    },
+    onSortingChange: setSorting,
+    manualSorting: true,
+    enableSortingRemoval: false,
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    rowCount: totalCount
   });
 
   return (
@@ -121,8 +188,12 @@ export default function PendingApprovalsPage() {
         ) : isError ? (
           <Alert severity="error">{error.message}</Alert>
         ) : (
-          <TableContainer component={Paper} variant="outlined">
-            <Table>
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s", overflowX: "auto" }}
+          >
+            <Table sx={{ minWidth: 1000 }}>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id}>
@@ -139,7 +210,17 @@ export default function PendingApprovalsPage() {
                             pr: isLastColumn ? 3 : 2
                           }}
                         >
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <TableSortLabel
+                              active={header.column.getIsSorted() !== false}
+                              direction={header.column.getIsSorted() || "asc"}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableSortLabel>
+                          ) : (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          )}
                         </TableCell>
                       );
                     })}

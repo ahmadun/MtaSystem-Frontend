@@ -797,11 +797,12 @@ export default function ChecksheetTemplatesPage() {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === headerGroup.headers.length - 1;
                       const isTemplateColumn = header.column.id === "template";
+                      const isCenterColumn = ["mode", "entryMode"].includes(header.column.id);
 
                       return (
                         <TableCell
                           key={header.id}
-                          align={isLastColumn ? "right" : "left"}
+                          align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
                             pr: isLastColumn ? 3 : 2,
@@ -826,11 +827,12 @@ export default function ChecksheetTemplatesPage() {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === row.getVisibleCells().length - 1;
                       const isTemplateColumn = cell.column.id === "template";
+                      const isCenterColumn = ["mode", "entryMode"].includes(cell.column.id);
 
                       return (
                         <TableCell
                           key={cell.id}
-                          align={isLastColumn ? "right" : "left"}
+                          align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
                             pr: isLastColumn ? 3 : 2,

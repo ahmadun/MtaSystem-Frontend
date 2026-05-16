@@ -16,6 +16,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
@@ -74,7 +75,8 @@ function formatDateTime(value) {
     month: "short",
     day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit"
+    minute: "2-digit",
+    hour12: false
   }).format(new Date(value));
 }
 
@@ -88,6 +90,8 @@ export default function ChecksheetMonthlyResultsPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([{ id: "reviewedAt", desc: true }]);
+  const activeSort = sorting[0];
 
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
@@ -106,14 +110,26 @@ export default function ChecksheetMonthlyResultsPage() {
   const queryParams = useMemo(() => ({
     page,
     pageSize,
+    sortBy: activeSort?.id,
+    sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
     location: filters.location || undefined,
     inspectionDateFrom: monthRange.from,
     inspectionDateTo: monthRange.to
-  }), [filters.checksheetMasterId, filters.lineCode, filters.location, monthRange.from, monthRange.to, page, pageSize]);
+  }), [
+    activeSort?.desc,
+    activeSort?.id,
+    filters.checksheetMasterId,
+    filters.lineCode,
+    filters.location,
+    monthRange.from,
+    monthRange.to,
+    page,
+    pageSize
+  ]);
 
-  const { data, isLoading, isError, error } = useChecksheetMonthlyResults(queryParams);
+  const { data, isLoading, isError, error, isFetching } = useChecksheetMonthlyResults(queryParams);
   const results = useMemo(() => data?.items ?? [], [data?.items]);
   const totalCount = data?.totalCount ?? 0;
 
@@ -121,10 +137,15 @@ export default function ChecksheetMonthlyResultsPage() {
     setPage(1);
   }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.month]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
   const columns = useMemo(
     () => [
       {
         id: "checksheet",
+        enableSorting: false,
         header: "Checksheet",
         cell: ({ row }) => (
           <Stack spacing={0.35}>
@@ -139,6 +160,7 @@ export default function ChecksheetMonthlyResultsPage() {
       },
       {
         id: "machine",
+        enableSorting: false,
         header: "Machine",
         cell: ({ row }) => (
           <Stack spacing={0.4}>
@@ -152,6 +174,7 @@ export default function ChecksheetMonthlyResultsPage() {
 
       {
         id: "group",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "center" }}>Group</Box>,
         cell: ({ row }) => (
           <Box sx={{ display: "flex", justifyContent: "center" }}>
@@ -165,6 +188,7 @@ export default function ChecksheetMonthlyResultsPage() {
       },
       {
         id: "status",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "center" }}>Month-End Status</Box>,
         cell: ({ row }) => (
           <Box sx={{ display: "flex", justifyContent: "center" }}>
@@ -179,11 +203,13 @@ export default function ChecksheetMonthlyResultsPage() {
       },
       {
         id: "reviewedAt",
+        accessorFn: (row) => row.approvedAt || row.submittedAt || "",
         header: "Last Review",
         cell: ({ row }) => formatDateTime(row.original.approvedAt || row.original.submittedAt)
       },
       {
         id: "action",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "right" }}>Action</Box>,
         cell: ({ row }) => (
           <Box sx={{ textAlign: "right" }}>
@@ -206,6 +232,10 @@ export default function ChecksheetMonthlyResultsPage() {
   const table = useReactTable({
     data: results,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    manualSorting: true,
+    enableSortingRemoval: false,
     getCoreRowModel: getCoreRowModel()
   });
 
@@ -306,7 +336,11 @@ export default function ChecksheetMonthlyResultsPage() {
         ) : isError ? (
           <Alert severity="error">{error.message}</Alert>
         ) : (
-          <TableContainer component={Paper} variant="outlined">
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s" }}
+          >
             <Table>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -326,7 +360,17 @@ export default function ChecksheetMonthlyResultsPage() {
                             pr: isLastColumn ? 3 : 2
                           }}
                         >
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <TableSortLabel
+                              active={header.column.getIsSorted() !== false}
+                              direction={header.column.getIsSorted() || "asc"}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableSortLabel>
+                          ) : (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          )}
                         </TableCell>
                       );
                     })}

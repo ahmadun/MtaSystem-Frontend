@@ -22,6 +22,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Tooltip,
   Typography
@@ -1135,6 +1136,8 @@ export default function ChecksheetSubmissionsPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([{ id: "inspectionDate", desc: true }]);
+  const activeSort = sorting[0];
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
   const { data: areas = [] } = useChecksheetAreas();
@@ -1146,9 +1149,11 @@ export default function ChecksheetSubmissionsPage() {
     () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
     [filters.lineCode, lines]
   );
-  const { data, isLoading, isError, error } = useChecksheetSubmissions({
+  const { data, isLoading, isError, error, isFetching } = useChecksheetSubmissions({
     page,
     pageSize,
+    sortBy: activeSort?.id,
+    sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
     location: filters.location || undefined
@@ -1160,6 +1165,10 @@ export default function ChecksheetSubmissionsPage() {
   useEffect(() => {
     setPage(1);
   }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
 
   const stats = useMemo(
     () => ({
@@ -1175,12 +1184,13 @@ export default function ChecksheetSubmissionsPage() {
     () => [
       {
         accessorKey: "id",
-        header: () => <Box sx={{ textAlign: "center" }}>ID</Box>,
-        cell: ({ getValue }) => <Box sx={{ textAlign: "center", fontWeight: 600 }}>{getValue()}</Box>,
+        header: () => <Box sx={{ textAlign: "left" }}>ID</Box>,
+        cell: ({ getValue }) => <Box sx={{ textAlign: "left", fontWeight: 600 }}>{getValue()}</Box>,
         size: 80
       },
       {
         id: "machine",
+        accessorFn: (row) => row.machineCode ?? "",
         header: "Machine",
         cell: ({ row }) => (
           <>
@@ -1192,16 +1202,41 @@ export default function ChecksheetSubmissionsPage() {
         )
       },
       {
+        id: "checksheetName",
+        enableSorting: false,
+        header: "Checksheet Name",
+        cell: ({ row }) => (
+          <Stack spacing={0.25} sx={{ maxWidth: 320 }}>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              sx={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "break-word" }}
+            >
+              {[row.original.processCode, row.original.processName].filter(Boolean).join(" - ") || "-"}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ whiteSpace: "normal", wordBreak: "normal", overflowWrap: "break-word" }}
+            >
+              {row.original.checksheetName || "-"}
+            </Typography>
+          </Stack>
+        )
+      },
+      {
         accessorKey: "inspectionDate",
         header: "Started Date"
       },
       {
         id: "monthPeriod",
+        accessorKey: "inspectionDate",
         header: "Month Period",
         cell: ({ row }) => formatMonthPeriod(row.original.inspectionDate)
       },
       {
         id: "groupCodes",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "center" }}>Group</Box>,
         cell: ({ row }) => (
           <Box sx={{ textAlign: "center" }}>
@@ -1211,7 +1246,7 @@ export default function ChecksheetSubmissionsPage() {
       },
       {
         accessorKey: "status",
-        header: () => <Box sx={{ textAlign: "center" }}>Status</Box>,
+        header: () => <Box sx={{ textAlign: "center", pl: 1 }}>Status</Box>,
         cell: ({ getValue }) => {
           const status = getValue();
           return (
@@ -1227,6 +1262,7 @@ export default function ChecksheetSubmissionsPage() {
       },
       {
         id: "action",
+        enableSorting: false,
         header: () => <Box sx={{ textAlign: "right" }}>Action</Box>,
         cell: ({ row }) => (
           <Box sx={{ textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 1 }}>
@@ -1264,6 +1300,10 @@ export default function ChecksheetSubmissionsPage() {
   const table = useReactTable({
     data: submissions,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    manualSorting: true,
+    enableSortingRemoval: false,
     getCoreRowModel: getCoreRowModel()
   });
 
@@ -1398,7 +1438,11 @@ export default function ChecksheetSubmissionsPage() {
         ) : isError ? (
           <Alert severity="error">{error.message}</Alert>
         ) : (
-          <TableContainer component={Paper} variant="outlined">
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s", overflowX: "auto" }}
+          >
             <Table>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -1406,17 +1450,28 @@ export default function ChecksheetSubmissionsPage() {
                     {headerGroup.headers.map((header, index) => {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === headerGroup.headers.length - 1;
+                      const isCenterColumn = ["groupCodes", "status"].includes(header.column.id);
 
                       return (
                         <TableCell
                           key={header.id}
-                          align={isLastColumn ? "right" : "left"}
+                          align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
                             pr: isLastColumn ? 3 : 2
                           }}
                         >
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <TableSortLabel
+                              active={header.column.getIsSorted() !== false}
+                              direction={header.column.getIsSorted() || "asc"}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableSortLabel>
+                          ) : (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          )}
                         </TableCell>
                       );
                     })}
@@ -1429,11 +1484,12 @@ export default function ChecksheetSubmissionsPage() {
                     {row.getVisibleCells().map((cell, index) => {
                       const isFirstColumn = index === 0;
                       const isLastColumn = index === row.getVisibleCells().length - 1;
+                      const isCenterColumn = ["groupCodes", "status"].includes(cell.column.id);
 
                       return (
                         <TableCell
                           key={cell.id}
-                          align={isLastColumn ? "right" : "left"}
+                          align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
                             pr: isLastColumn ? 3 : 2
@@ -1447,7 +1503,7 @@ export default function ChecksheetSubmissionsPage() {
                 ))}
                 {submissions.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 6, px: 3 }}>No checksheet transactions yet.</TableCell>
+                    <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>No checksheet transactions yet.</TableCell>
                   </TableRow>
                 )}
               </TableBody>

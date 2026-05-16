@@ -5,6 +5,7 @@ import Loadable from "./components/Loadable";
 import MatxLayout from "./components/MatxLayout/MatxLayout";
 import sessionRoutes from "./views/sessions/session-routes";
 import materialRoutes from "app/views/material-kit/MaterialRoutes";
+const DashboardPage = Loadable(lazy(() => import("app/views/dashboard/DashboardPage")));
 const UsersPage = Loadable(lazy(() => import("app/views/users/UsersPage")));
 const ChecksheetAreasPage = Loadable(lazy(() => import("app/views/master/ChecksheetAreasPage")));
 const ChecksheetLineMastersPage = Loadable(lazy(() => import("app/views/master/ChecksheetLineMastersPage")));
@@ -23,7 +24,7 @@ const PendingRepairApprovalsPage = Loadable(lazy(() => import("app/views/checksh
 const ApprovalTemplatesPage = Loadable(lazy(() => import("app/views/checksheets/ApprovalTemplatesPage")));
 
 const routes = [
-  { path: "/", element: <Navigate to="checksheets/submissions" /> },
+  { path: "/", element: <Navigate to="dashboard" /> },
   {
     element: (
       <AuthGuard>
@@ -32,6 +33,7 @@ const routes = [
     ),
     children: [
       ...materialRoutes,
+      { path: "/dashboard", element: <DashboardPage /> },
       { path: "/users", element: <UsersPage /> },
       { path: "/master/checksheet-areas", element: <ChecksheetAreasPage /> },
       { path: "/master/checksheet-line-masters", element: <ChecksheetLineMastersPage /> },

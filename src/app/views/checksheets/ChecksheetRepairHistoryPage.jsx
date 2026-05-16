@@ -16,6 +16,7 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableSortLabel,
   TextField,
   Typography
 } from "@mui/material";
@@ -41,6 +42,19 @@ const WRAP_CELL_SX = {
   verticalAlign: "top"
 };
 
+function formatDateTime(value) {
+  if (!value) return "-";
+
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(value));
+}
+
 export default function ChecksheetRepairHistoryPage() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState({
@@ -51,6 +65,8 @@ export default function ChecksheetRepairHistoryPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [sorting, setSorting] = useState([{ id: "entryDate", desc: true }]);
+  const activeSort = sorting[0];
 
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: lines = [] } = useChecksheetLines();
@@ -63,9 +79,11 @@ export default function ChecksheetRepairHistoryPage() {
     () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
     [filters.lineCode, lines]
   );
-  const { data, isLoading, isError, error } = useRepairHistory({
+  const { data, isLoading, isError, error, isFetching } = useRepairHistory({
     page,
     pageSize,
+    sortBy: activeSort?.id,
+    sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
     location: filters.location || undefined,
@@ -79,10 +97,15 @@ export default function ChecksheetRepairHistoryPage() {
     setPage(1);
   }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.approvalStatus]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [sorting]);
+
   const columns = useMemo(
     () => [
       {
         id: "machine",
+        accessorFn: (row) => row.machineCode ?? "",
         header: "Machine",
         size: 180,
         cell: ({ row }) => (
@@ -95,9 +118,21 @@ export default function ChecksheetRepairHistoryPage() {
         )
       },
       {
+        id: "entryDate",
+        accessorKey: "createdAt",
+        header: "Entry Date",
+        size: 170,
+        cell: ({ getValue }) => (
+          <Typography variant="body2" sx={{ whiteSpace: "nowrap" }}>
+            {formatDateTime(getValue())}
+          </Typography>
+        )
+      },
+      {
         id: "repair",
+        accessorFn: (row) => `${row.damageDescription ?? ""} ${row.repairDescription ?? ""}`,
         header: "Repair",
-        size: 420,
+        size: 390,
         cell: ({ row }) => (
           <Stack spacing={1}>
             <Box>
@@ -155,6 +190,7 @@ export default function ChecksheetRepairHistoryPage() {
       },
       {
         id: "approval",
+        accessorKey: "approvalStatus",
         header: () => <Box sx={{ textAlign: "center" }}>Approval</Box>,
         size: 150,
         cell: ({ row }) => {
@@ -188,6 +224,7 @@ export default function ChecksheetRepairHistoryPage() {
       },
       {
         id: "action",
+        enableSorting: false,
         size: 110,
         header: () => <Box sx={{ textAlign: "right" }}>Action</Box>,
         cell: ({ row }) => (
@@ -208,6 +245,10 @@ export default function ChecksheetRepairHistoryPage() {
   const table = useReactTable({
     data: records,
     columns,
+    state: { sorting },
+    onSortingChange: setSorting,
+    manualSorting: true,
+    enableSortingRemoval: false,
     getCoreRowModel: getCoreRowModel()
   });
 
@@ -299,7 +340,11 @@ export default function ChecksheetRepairHistoryPage() {
         ) : isError ? (
           <Alert severity="error">{error.message}</Alert>
         ) : (
-          <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+          <TableContainer
+            component={Paper}
+            variant="outlined"
+            sx={{ overflowX: "auto", opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s" }}
+          >
             <Table sx={{ minWidth: 1400, tableLayout: "fixed" }}>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -321,7 +366,17 @@ export default function ChecksheetRepairHistoryPage() {
                             pr: isLastColumn ? 3 : 2
                           }}
                         >
-                          {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <TableSortLabel
+                              active={header.column.getIsSorted() !== false}
+                              direction={header.column.getIsSorted() || "asc"}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableSortLabel>
+                          ) : (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          )}
                         </TableCell>
                       );
                     })}
@@ -356,7 +411,7 @@ export default function ChecksheetRepairHistoryPage() {
                 ))}
                 {records.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 6, px: 3 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 6, px: 3 }}>
                       No repair history found.
                     </TableCell>
                   </TableRow>
