@@ -65,6 +65,11 @@ export const getRepairmanCheckers = async (params) => {
   return response.data;
 };
 
+export const getChecksheetStepApprovers = async (params) => {
+  const response = await apiClient.get("/checksheet-masters/step-approvers", { params });
+  return response.data;
+};
+
 export const getChecksheetMachines = async (params) => {
   const response = await apiClient.get("/checksheet-masters/machines", { params });
   return response.data;
@@ -124,6 +129,21 @@ export const updateRepairmanChecker = async (id, data) => {
 
 export const deleteRepairmanChecker = async (id) => {
   const response = await apiClient.delete(`/checksheet-masters/repairman-checkers/${id}`);
+  return response.data;
+};
+
+export const createChecksheetStepApprover = async (data) => {
+  const response = await apiClient.post("/checksheet-masters/step-approvers", data);
+  return response.data;
+};
+
+export const updateChecksheetStepApprover = async (id, data) => {
+  const response = await apiClient.put(`/checksheet-masters/step-approvers/${id}`, data);
+  return response.data;
+};
+
+export const deleteChecksheetStepApprover = async (id) => {
+  const response = await apiClient.delete(`/checksheet-masters/step-approvers/${id}`);
   return response.data;
 };
 
@@ -190,6 +210,14 @@ export const getChecksheetSubmission = async (id, params) => {
 export const getChecksheetSubmissionMonthlyView = async (id, params) => {
   const response = await apiClient.get(`/checksheet-submissions/${id}/monthly-view`, { params });
   return response.data;
+};
+
+export const exportChecksheetSubmissionMonthlyView = async (id, params) => {
+  const response = await apiClient.get(`/checksheet-submissions/${id}/monthly-view/export`, {
+    params,
+    responseType: "blob"
+  });
+  return response;
 };
 
 export const createChecksheetSubmission = async (data) => {

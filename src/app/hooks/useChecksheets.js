@@ -6,6 +6,7 @@ import {
   createChecksheetMaster,
   createChecksheetGroup,
   createRepairmanChecker,
+  createChecksheetStepApprover,
   createChecksheetLine,
   createChecksheetMachine,
   createApprovalRequest,
@@ -17,14 +18,17 @@ import {
   getChecksheetMasters,
   getChecksheetGroups,
   getRepairmanCheckers,
+  getChecksheetStepApprovers,
   getChecksheetLines,
   getChecksheetMachine,
   getChecksheetMachines,
   exportChecksheetMachineLabels,
+  exportChecksheetSubmissionMonthlyView,
   deleteChecksheetArea,
   deleteChecksheetMaster,
   deleteChecksheetGroup,
   deleteRepairmanChecker,
+  deleteChecksheetStepApprover,
   deleteChecksheetLine,
   deleteChecksheetMachine,
   deleteChecksheetSubmission,
@@ -52,6 +56,7 @@ import {
   updateChecksheetMaster,
   updateChecksheetGroup,
   updateRepairmanChecker,
+  updateChecksheetStepApprover,
   updateChecksheetLine,
   updateChecksheetMachine,
   upsertChecksheetMachineModeTemplate,
@@ -128,6 +133,15 @@ export const useRepairmanCheckers = (params = {}, options = {}) =>
     ...options
   });
 
+export const useChecksheetStepApprovers = (params = {}, options = {}) =>
+  useQuery({
+    queryKey: ["checksheets", "masters", "step-approvers", params],
+    queryFn: () => getChecksheetStepApprovers(params).then((res) => res.data),
+    keepPreviousData: true,
+    staleTime: 30_000,
+    ...options
+  });
+
 export const useChecksheetMachines = (params = {}, options = {}) =>
   useQuery({
     queryKey: ["checksheets", "masters", "machines", params],
@@ -191,6 +205,15 @@ export const useUpdateRepairmanChecker = (id) =>
 export const useDeleteRepairmanChecker = () =>
   useSnackbarMutation(deleteRepairmanChecker, [CHECKSHEET_KEYS.all], "Repairman checker deleted successfully");
 
+export const useCreateChecksheetStepApprover = () =>
+  useSnackbarMutation(createChecksheetStepApprover, [CHECKSHEET_KEYS.all], "Checksheet approver created successfully");
+
+export const useUpdateChecksheetStepApprover = (id) =>
+  useSnackbarMutation((data) => updateChecksheetStepApprover(id, data), [CHECKSHEET_KEYS.all], "Checksheet approver updated successfully");
+
+export const useDeleteChecksheetStepApprover = () =>
+  useSnackbarMutation(deleteChecksheetStepApprover, [CHECKSHEET_KEYS.all], "Checksheet approver deleted successfully");
+
 export const useCreateChecksheetMachine = () =>
   useSnackbarMutation(createChecksheetMachine, [CHECKSHEET_KEYS.all], "Checksheet line created successfully");
 
@@ -229,6 +252,35 @@ export const useExportChecksheetMachineLabels = () => {
       window.URL.revokeObjectURL(downloadUrl);
 
       enqueueSnackbar("Machine labels exported successfully", { variant: "success" });
+    },
+    onError: (error) => {
+      enqueueSnackbar(error.message || "Export failed", { variant: "error" });
+    }
+  });
+};
+
+export const useExportChecksheetSubmissionMonthlyView = (submissionId) => {
+  const { enqueueSnackbar } = useSnackbar();
+
+  return useMutation({
+    mutationFn: (params) => exportChecksheetSubmissionMonthlyView(submissionId, params),
+    onSuccess: (response) => {
+      const blob = new Blob([response.data], {
+        type: response.headers["content-type"] || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      const contentDisposition = response.headers["content-disposition"] || "";
+      const fileNameMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+      const fileName = fileNameMatch?.[1] || "checksheet-monthly.xlsx";
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+      enqueueSnackbar("Monthly checksheet exported successfully", { variant: "success" });
     },
     onError: (error) => {
       enqueueSnackbar(error.message || "Export failed", { variant: "error" });

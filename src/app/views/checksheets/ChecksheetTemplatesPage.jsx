@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Chip,
@@ -38,19 +37,16 @@ import {
   useDeleteChecksheetTemplate,
   useUpdateChecksheetTemplate
 } from "app/hooks/useChecksheets";
-import { useUserOptions } from "app/hooks/useUsers";
 
 const COLUMN_TYPES = [
   { value: "text", label: "Text" },
-  { value: "textarea", label: "Textarea" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean" },
-  { value: "select", label: "Select" }
+  { value: "textarea", label: "Textarea" }
 ];
 
 const ITEM_VALUE_TYPES = [
   { value: "fixed", label: "Fixed (OK/NG/FIX)" },
-  { value: "free_text", label: "Free Text" }
+  { value: "free_text", label: "Free Text" },
+  { value: "number", label: "Number" }
 ];
 
 const CHECKSHEET_MODES = [
@@ -106,6 +102,10 @@ function serializeColumnOptions(column) {
   });
 }
 
+function normalizeColumnType(columnType) {
+  return COLUMN_TYPES.some((option) => option.value === columnType) ? columnType : "text";
+}
+
 function syncItemKeys(items, previousKey, nextKey) {
   if (!previousKey || previousKey === nextKey) {
     return items;
@@ -156,14 +156,6 @@ function getApproverUserIds(step) {
   return singleApproverUserId > 0 ? [singleApproverUserId] : [];
 }
 
-function getUserOptionLabel(option) {
-  if (!option) return "";
-  const userCode = option.employeeCode || option.username;
-  if (option.employeeName) return `${userCode} - ${option.employeeName}`;
-  if (option.email) return `${userCode} (${option.email})`;
-  return option.username || "";
-}
-
 function buildInitialForm(template) {
   if (!template) {
     const columns = [
@@ -194,7 +186,7 @@ function buildInitialForm(template) {
     columns: (template.columns ?? []).map((column, index) => ({
       columnKey: column.columnKey,
       label: column.label,
-      columnType: column.columnType,
+      columnType: normalizeColumnType(column.columnType),
       isRequired: column.isRequired,
       enableRowSpan: column.enableRowSpan ?? parseColumnOptions(column.optionsJson).enableRowSpan ?? false,
       sortOrder: index,
@@ -224,13 +216,12 @@ function buildInitialForm(template) {
   };
 }
 
-function TemplateEditor({ open = true, mode, templateId, onClose, embedded = false }) {
+function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embedded = false }) {
   const isEdit = mode === "edit";
   const isEnabled = embedded || open;
   const detailQuery = useChecksheetTemplate(templateId, { enabled: isEnabled && isEdit && !!templateId });
   const createMutation = useCreateChecksheetTemplate();
   const updateMutation = useUpdateChecksheetTemplate(templateId);
-  const { data: userOptions = [] } = useUserOptions({ Top: 200 }, { enabled: isEnabled });
   const [form, setForm] = useState(buildInitialForm(null));
 
   useEffect(() => {
@@ -274,14 +265,14 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
           stepOrder: index + 1,
           approverUserIds: [...new Set((step.approverUserIds ?? []).map(Number).filter((userId) => userId > 0))]
         }))
-        .filter((step) => step.stepName && step.approverUserIds.length > 0),
+        .filter((step) => step.stepName),
       regularApprovalSteps: form.regularApprovalSteps
         .map((step, index) => ({
           stepName: step.stepName.trim(),
           stepOrder: index + 1,
           approverUserIds: [...new Set((step.approverUserIds ?? []).map(Number).filter((userId) => userId > 0))]
         }))
-        .filter((step) => step.stepName && step.approverUserIds.length > 0)
+        .filter((step) => step.stepName)
     };
 
     if (isEdit) {
@@ -290,6 +281,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
       await createMutation.mutateAsync(payload);
     }
 
+    await onSaved?.({ mode, templateId });
     onClose();
   };
 
@@ -298,8 +290,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
     form.checksheetMode &&
     form.columns.length > 0 &&
     form.columns.every((column) => column.columnKey.trim() && column.label.trim()) &&
-    form.items.length > 0 &&
-    activeApprovalSteps.every((step) => !step.stepName.trim() || (step.approverUserIds?.length ?? 0) > 0);
+    form.items.length > 0;
 
   const formGridSx = {
     display: "grid",
@@ -507,7 +498,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
                   {form.checksheetMode === "regular" ? "Regular Approval Steps" : "Daily Approval Steps"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Optional. These approval rows run sequentially; any allowed user can complete a step once per transaction.
+                  Optional. These approval rows run sequentially. Allowed users are maintained by step order in Checksheet Approver Master.
                 </Typography>
               </Box>
               <Button
@@ -538,7 +529,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
                       gap: 1.5,
                       gridTemplateColumns: {
                         xs: "minmax(0, 1fr)",
-                        md: "110px minmax(220px, 1fr) minmax(300px, 1.2fr) auto"
+                        md: "110px minmax(220px, 1fr) auto"
                       },
                       alignItems: "start"
                     }}
@@ -556,22 +547,6 @@ function TemplateEditor({ open = true, mode, templateId, onClose, embedded = fal
                         }))
                       }
                       fullWidth
-                    />
-                    <Autocomplete
-                      multiple
-                      options={userOptions}
-                      value={userOptions.filter((option) => (step.approverUserIds ?? []).includes(option.userId))}
-                      onChange={(_, options) =>
-                        setForm((current) => ({
-                          ...current,
-                          [current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"]: current[
-                            current.checksheetMode === "regular" ? "regularApprovalSteps" : "dailyApprovalSteps"
-                          ].map((item, itemIndex) => (itemIndex === index ? { ...item, approverUserIds: options.map((option) => option.userId) } : item))
-                        }))
-                      }
-                      isOptionEqualToValue={(option, value) => option.userId === value.userId}
-                      getOptionLabel={getUserOptionLabel}
-                      renderInput={(params) => <TextField {...params} label="Allowed Users" placeholder="Select users" />}
                     />
                     <IconButton
                       color="error"
@@ -651,7 +626,7 @@ export default function ChecksheetTemplatesPage() {
   const isFormRoute = location.pathname.endsWith("/new") || location.pathname.endsWith("/edit");
   const formMode = id ? "edit" : "create";
   const templateId = id ? Number(id) : null;
-  const { data, isLoading, isError, error } = useChecksheetTemplates({ page, pageSize });
+  const { data, isLoading, isError, error, refetch } = useChecksheetTemplates({ page, pageSize });
   const deleteMutation = useDeleteChecksheetTemplate();
   const templates = useMemo(() => data?.items ?? [], [data?.items]);
   const totalCount = data?.totalCount ?? 0;
@@ -759,6 +734,13 @@ export default function ChecksheetTemplatesPage() {
         embedded
         mode={formMode}
         templateId={templateId}
+        onSaved={async ({ mode }) => {
+          if (mode === "create") {
+            setPage(1);
+          }
+
+          await refetch();
+        }}
         onClose={() => navigate("/master/checksheet-templates")}
       />
     );

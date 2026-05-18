@@ -214,6 +214,12 @@ function buildInspectionNote(note) {
   return cleanNote || null;
 }
 
+function sanitizeNumberInput(value) {
+  const normalized = String(value ?? "").replace(/[^0-9.]/g, "");
+  const [wholePart, ...decimalParts] = normalized.split(".");
+  return decimalParts.length > 0 ? `${wholePart}.${decimalParts.join("")}` : wholePart;
+}
+
 function getRecordBoardCode(record) {
   return normalizeBoardCode(
     record?.boardCode ??
@@ -836,10 +842,12 @@ export default function ChecksheetSubmissionDetailPage() {
             />
 
             <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
-              <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 480 }}>
+              <TableContainer component={Paper} variant="outlined" sx={{ width: "100%", overflowX: "auto" }}>
                 <Table
                   size="small"
                   sx={{
+                    minWidth: Math.max(860, templateColumns.length * 180 + 460),
+                    tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       borderRight: 1,
                       borderColor: "divider",
@@ -862,10 +870,19 @@ export default function ChecksheetSubmissionDetailPage() {
                   <TableHead>
                     <TableRow>
                       {templateColumns.map((column, columnIndex) => (
-                        <TableCell key={column.id} sx={{ pl: columnIndex === 0 ? 3 : 2 }}>{column.label}</TableCell>
+                        <TableCell
+                          key={column.id ?? column.columnKey}
+                          sx={{
+                            width: column.columnKey === "itemNo" ? 90 : 180,
+                            minWidth: column.columnKey === "itemNo" ? 90 : 180,
+                            pl: columnIndex === 0 ? 3 : 2
+                          }}
+                        >
+                          {column.label}
+                        </TableCell>
                       ))}
-                      <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
-                      <TableCell sx={{ minWidth: 160, pl: 1 }}>Remark</TableCell>
+                      <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>Entry</TableCell>
+                      <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>Remark</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -888,14 +905,16 @@ export default function ChecksheetSubmissionDetailPage() {
                                 verticalAlign: "middle",
                                 whiteSpace: "normal",
                                 overflowWrap: "normal",
-                                wordBreak: "normal"
+                                wordBreak: "normal",
+                                width: column.columnKey === "itemNo" ? 90 : 180,
+                                minWidth: column.columnKey === "itemNo" ? 90 : 180
                               }}
                             >
                               {item.data?.[column.columnKey] || "-"}
                             </TableCell>
                           );
                         })}
-                        <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
+                        <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
                           {(item.valueType ?? "fixed") === "fixed" ? (
                             <ButtonGroup
                               size="small"
@@ -922,6 +941,16 @@ export default function ChecksheetSubmissionDetailPage() {
                                 );
                               })}
                             </ButtonGroup>
+                          ) : (item.valueType ?? "fixed") === "number" ? (
+                            <TextField
+                              value={getEntryValue(item.id, "resultValue")}
+                              onChange={(event) => handleInspectionValueChange(item.id, { resultValue: sanitizeNumberInput(event.target.value) })}
+                              placeholder="Enter number"
+                              size="small"
+                              fullWidth
+                              disabled={!isDraft || isInspectionMutationPending}
+                              inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                            />
                           ) : (
                             <TextField
                               value={getEntryValue(item.id, "resultValue")}
@@ -933,7 +962,7 @@ export default function ChecksheetSubmissionDetailPage() {
                             />
                           )}
                         </TableCell>
-                        <TableCell sx={{ pl: 1 }}>
+                        <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>
                           <TextField
                             value={getEntryValue(item.id, "remark")}
                             onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}

@@ -28,6 +28,7 @@ import {
 import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
 import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { ConfirmationDialog } from "app/components";
@@ -40,6 +41,7 @@ import {
   useCreateRepairRecord,
   useDeleteInspectionRecord,
   useDeleteRepairRecord,
+  useExportChecksheetSubmissionMonthlyView,
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
@@ -146,6 +148,12 @@ function normalizeBoardCode(value) {
 function buildInspectionNote(note) {
   const cleanNote = String(note ?? "").trim();
   return cleanNote || null;
+}
+
+function sanitizeNumberInput(value) {
+  const normalized = String(value ?? "").replace(/[^0-9.]/g, "");
+  const [wholePart, ...decimalParts] = normalized.split(".");
+  return decimalParts.length > 0 ? `${wholePart}.${decimalParts.join("")}` : wholePart;
 }
 
 function getBoardCodeFromEntry(entry) {
@@ -491,6 +499,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const createRepairMutation = useCreateRepairRecord(submissionId);
   const approveRepairMutation = useApproveRepairRecord();
   const deleteRepairMutation = useDeleteRepairRecord(submissionId);
+  const exportMonthlyView = useExportChecksheetSubmissionMonthlyView(submissionId);
 
   const [selectedEntryKey, setSelectedEntryKey] = useState("");
   const [selectedMode, setSelectedMode] = useState("daily");
@@ -517,6 +526,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
     });
     return Array.from(viewMap.entries()).map(([mode, view]) => ({ mode, view }));
   }, [bootstrapMonthlyQuery.data, secondaryMonthlyQuery.data]);
+  const orderedMonthlyViews = useMemo(
+    () =>
+      [...monthlyViews].sort((left, right) => {
+        const order = { daily: 0, regular: 1 };
+        return (order[left.mode] ?? 99) - (order[right.mode] ?? 99);
+      }),
+    [monthlyViews]
+  );
   const monthlyView = monthlyViews.find((entry) => entry.mode === selectedMode)?.view ?? bootstrapMonthlyQuery.data ?? secondaryMonthlyQuery.data ?? null;
   const referenceView = bootstrapMonthlyQuery.data ?? secondaryMonthlyQuery.data ?? null;
   const isMonthlyLoading = bootstrapMonthlyQuery.isLoading || secondaryMonthlyQuery.isLoading;
@@ -1052,13 +1069,23 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 Daily results, shift, and simple day-by-day approvals are shown in one horizontal month sheet.
               </Typography>
             </Box>
-            <Button
-              variant="outlined"
-              startIcon={<ArrowBackOutlinedIcon />}
-              onClick={() => navigate(`/checksheets/submissions/${submissionId}`)}
-            >
-              Back To Detail
-            </Button>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+              <Button
+                variant="outlined"
+                startIcon={<FileDownloadOutlinedIcon />}
+                disabled={exportMonthlyView.isPending}
+                onClick={() => exportMonthlyView.mutate({ year, month })}
+              >
+                {exportMonthlyView.isPending ? "Exporting..." : "Export Excel"}
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<ArrowBackOutlinedIcon />}
+                onClick={() => navigate(`/checksheets/submissions/${submissionId}`)}
+              >
+                Back To Detail
+              </Button>
+            </Stack>
           </Stack>
 
           <Paper variant="outlined" sx={{ p: 3 }}>
@@ -1106,7 +1133,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
             </Stack>
           </Paper>
           <Typography variant="h6">{formatMonthTitle(monthValue)}</Typography>
-          {monthlyViews.map((entry) => renderModeSheet(entry.view))}
+          {orderedMonthlyViews.map((entry) => renderModeSheet(entry.view))}
 
           {isDraft ? (
             <>
@@ -1183,10 +1210,12 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   disabled={!isDraft || isInspectionMutationPending}
                 />
                 <Box sx={{ overflowX: "auto", mx: -1.5, px: 1.5 }}>
-                  <TableContainer component={Paper} variant="outlined" sx={{ minWidth: 600 }}>
+                  <TableContainer component={Paper} variant="outlined" sx={{ width: "100%", overflowX: "auto" }}>
                     <Table
                       size="small"
                       sx={{
+                        minWidth: Math.max(860, displayColumns.length * 180 + 460),
+                        tableLayout: "fixed",
                         "& .MuiTableCell-root": {
                           borderRight: 1,
                           borderColor: "divider",
@@ -1203,12 +1232,19 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       <TableHead>
                         <TableRow>
                           {displayColumns.map((column, columnIndex) => (
-                            <TableCell key={column.key} sx={{ minWidth: column.key === "itemNo" ? 80 : 180, pl: columnIndex === 0 ? 3 : 2 }}>
+                            <TableCell
+                              key={column.key}
+                              sx={{
+                                width: column.key === "itemNo" ? 90 : 180,
+                                minWidth: column.key === "itemNo" ? 90 : 180,
+                                pl: columnIndex === 0 ? 3 : 2
+                              }}
+                            >
                               {column.label}
                             </TableCell>
                           ))}
-                          <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>Entry</TableCell>
-                          <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>Remark</TableCell>
+                          <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>Entry</TableCell>
+                          <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>Remark</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1231,6 +1267,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                     whiteSpace: "normal",
                                     overflowWrap: "anywhere",
                                     wordBreak: "break-word",
+                                    width: column.key === "itemNo" ? 90 : 180,
+                                    minWidth: column.key === "itemNo" ? 90 : 180,
                                     pl: columnIndex === 0 ? 3 : 2
                                   }}
                                 >
@@ -1244,12 +1282,12 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 </TableCell>
                               );
                             })}
-                            <TableCell sx={{ width: 150, minWidth: 150, pl: 2 }}>
-                              {item.valueType === "fixed" ? (
+                            <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
+                              {(item.valueType ?? "fixed") === "fixed" ? (
                                 <ButtonGroup
                                   size="small"
                                   disabled={!isDraft || isInspectionMutationPending}
-                                  sx={{ flexShrink: 0 }}
+                                  sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
                                 >
                                   {FIXED_OPTIONS.map((option) => {
                                     const isSelected = (entryValues[item.templateItemId]?.resultValue ?? "") === option;
@@ -1271,6 +1309,16 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                     );
                                   })}
                                 </ButtonGroup>
+                              ) : (item.valueType ?? "fixed") === "number" ? (
+                                <TextField
+                                  value={entryValues[item.templateItemId]?.resultValue ?? ""}
+                                  onChange={(event) => handleInspectionValueChange(item.templateItemId, { resultValue: sanitizeNumberInput(event.target.value) })}
+                                  placeholder="Enter number"
+                                  size="small"
+                                  fullWidth
+                                  disabled={!isDraft || isInspectionMutationPending}
+                                  inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                                />
                               ) : (
                                 <TextField
                                   value={entryValues[item.templateItemId]?.resultValue ?? ""}
@@ -1282,7 +1330,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 />
                               )}
                             </TableCell>
-                            <TableCell sx={{ width: 160, minWidth: 160, pl: 2 }}>
+                            <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>
                               <TextField
                                 value={entryValues[item.templateItemId]?.remark ?? ""}
                                 onChange={(e) => handleInspectionValueChange(item.templateItemId, { remark: e.target.value })}

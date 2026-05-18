@@ -13,6 +13,7 @@ const ChecksheetGroupsPage = Loadable(lazy(() => import("app/views/master/Checks
 const ChecksheetMastersPage = Loadable(lazy(() => import("app/views/master/ChecksheetMastersPage")));
 const ChecksheetLinesPage = Loadable(lazy(() => import("app/views/master/ChecksheetLinesPage")));
 const RepairmanCheckersPage = Loadable(lazy(() => import("app/views/master/RepairmanCheckersPage")));
+const ChecksheetStepApproversPage = Loadable(lazy(() => import("app/views/master/ChecksheetStepApproversPage")));
 const ChecksheetTemplatesPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetTemplatesPage")));
 const ChecksheetSubmissionsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionsPage")));
 const ChecksheetRepairHistoryPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetRepairHistoryPage")));
@@ -41,6 +42,7 @@ const routes = [
       { path: "/master/checksheet-masters", element: <ChecksheetMastersPage /> },
       { path: "/master/checksheet-lines", element: <ChecksheetLinesPage /> },
       { path: "/master/repairman-checkers", element: <RepairmanCheckersPage /> },
+      { path: "/master/checksheet-step-approvers", element: <ChecksheetStepApproversPage /> },
       { path: "/master/checksheet-templates", element: <ChecksheetTemplatesPage /> },
       { path: "/master/checksheet-templates/new", element: <ChecksheetTemplatesPage /> },
       { path: "/master/checksheet-templates/:id/edit", element: <ChecksheetTemplatesPage /> },

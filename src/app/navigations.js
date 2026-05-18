@@ -62,6 +62,11 @@ const navigations = [
         path: "/master/checksheet-templates"
       },
       {
+        name: "Checksheet Approver",
+        iconText: "CA",
+        path: "/master/checksheet-step-approvers"
+      },
+      {
         name: "Area Master",
         iconText: "AM",
         path: "/master/checksheet-areas"
