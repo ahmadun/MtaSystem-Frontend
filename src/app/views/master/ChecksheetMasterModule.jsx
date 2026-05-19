@@ -60,6 +60,41 @@ import {
 } from "app/hooks/useChecksheets";
 
 const MODE_OPTIONS = ["daily", "regular"];
+const MACHINE_CODE_OPTIONS = ["CPG", "CPG2", "MPC"];
+const CHECKSHEET_MASTER_ENTRY_FIELDS = [
+  { key: "useStandNo", label: "Use Stand No." },
+  { key: "useSubAssyNo", label: "Use Sub Assy No." },
+  { key: "useMachineCode", label: "Use Machine Code" }
+];
+const REPAIR_FORM_FORMAT_OPTIONS = [
+  { value: "standard", label: "Standard" },
+  { value: "extended", label: "Extended Repair Format" }
+];
+const CHECKSHEET_MASTER_COLUMN_SX = {
+  processCode: { minWidth: 150 },
+  processName: { minWidth: 240 },
+  checksheetName: { minWidth: 300 },
+  entryFields: { minWidth: 260 },
+  status: { minWidth: 120 },
+  action: { width: 132, minWidth: 132 }
+};
+const CHECKSHEET_LINE_COLUMN_SX = {
+  select: { width: 64, minWidth: 64 },
+  machineCode: { minWidth: 180 },
+  checksheet: { minWidth: 520 },
+  line: { minWidth: 220 },
+  multiProductNo: { minWidth: 220 },
+  modes: { minWidth: 130 },
+  templates: { minWidth: 520 },
+  groups: { minWidth: 120 },
+  repairForms: { minWidth: 300 },
+  status: { minWidth: 120 },
+  action: { width: 132, minWidth: 132 }
+};
+
+function getColumnSx(columnId, map) {
+  return map[columnId] ?? {};
+}
 
 function createRepairFormKey() {
   return `repair-form-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -69,6 +104,7 @@ function createRepairForm(title = "") {
   return {
     formKey: createRepairFormKey(),
     title,
+    formatType: "standard",
     sortOrder: 1
   };
 }
@@ -78,11 +114,12 @@ function normalizeRepairFormsForSubmit(repairForms) {
     .map((form, index) => ({
       formKey: form.formKey || createRepairFormKey(),
       title: String(form.title || "").trim(),
+      formatType: form.formatType === "extended" ? "extended" : "standard",
       sortOrder: index + 1
     }))
     .filter((form) => form.title);
 
-  return normalized.length > 0 ? normalized : [{ formKey: "repair-form-1", title: "Repair Entry", sortOrder: 1 }];
+  return normalized.length > 0 ? normalized : [{ formKey: "repair-form-1", title: "Repair Entry", sortOrder: 1, formatType: "standard" }];
 }
 
 function extractMachineCodeSuffix(machineCode, lineCode, processCode) {
@@ -243,6 +280,9 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
     processName: initialData?.processName ?? "",
     checksheetName: initialData?.checksheetName ?? "",
     description: initialData?.description ?? "",
+    useStandNo: initialData?.useStandNo ?? false,
+    useSubAssyNo: initialData?.useSubAssyNo ?? false,
+    useMachineCode: initialData?.useMachineCode ?? false,
     isActive: initialData?.isActive ?? true
   });
 
@@ -252,6 +292,9 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
       processName: initialData?.processName ?? "",
       checksheetName: initialData?.checksheetName ?? "",
       description: initialData?.description ?? "",
+      useStandNo: initialData?.useStandNo ?? false,
+      useSubAssyNo: initialData?.useSubAssyNo ?? false,
+      useMachineCode: initialData?.useMachineCode ?? false,
       isActive: initialData?.isActive ?? true
     });
   }, [initialData]);
@@ -270,6 +313,23 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
           <TextField label="Process Name" value={form.processName} onChange={(event) => setForm((current) => ({ ...current, processName: event.target.value }))} />
           <TextField label="Checksheet Name" value={form.checksheetName} onChange={(event) => setForm((current) => ({ ...current, checksheetName: event.target.value }))} />
           <TextField label="Description" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} multiline minRows={2} />
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>Checksheet Line Entry Fields</Typography>
+            <FormGroup>
+              {CHECKSHEET_MASTER_ENTRY_FIELDS.map((field) => (
+                <FormControlLabel
+                  key={field.key}
+                  control={
+                    <Checkbox
+                      checked={form[field.key]}
+                      onChange={(event) => setForm((current) => ({ ...current, [field.key]: event.target.checked }))}
+                    />
+                  }
+                  label={field.label}
+                />
+              ))}
+            </FormGroup>
+          </Box>
           <Stack direction="row" spacing={1} alignItems="center">
             <Switch checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
             <Typography>{form.isActive ? "Active" : "Inactive"}</Typography>
@@ -296,6 +356,9 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
     ?? extractMachineCodeSuffix(initialData?.machineCode, initialData?.lineCode, initialMaster?.processCode);
   const [form, setForm] = useState({
     machineCodeSuffix: initialMachineCodeSuffix ?? "",
+    standNo: initialData?.standNo ?? "",
+    subAssyNo: initialData?.subAssyNo ?? "",
+    machineCodes: initialData?.machineCodes ?? [],
     checksheetMasterId: initialData?.checksheetMasterId ?? "",
     lineCode: initialData?.lineCode ?? "",
     multiProductNo: initialData?.multiProductNo ?? "",
@@ -312,6 +375,9 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
     setForm({
       machineCodeSuffix: initialData?.machineCodeSuffix
         ?? extractMachineCodeSuffix(initialData?.machineCode, initialData?.lineCode, resolvedMaster?.processCode),
+      standNo: initialData?.standNo ?? "",
+      subAssyNo: initialData?.subAssyNo ?? "",
+      machineCodes: initialData?.machineCodes ?? [],
       checksheetMasterId: initialData?.checksheetMasterId ?? "",
       lineCode: initialData?.lineCode ?? "",
       multiProductNo: initialData?.multiProductNo ?? "",
@@ -326,7 +392,8 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
 
   const selectedMaster = checksheetMasters.find((item) => item.id === form.checksheetMasterId);
   const selectedLine = lines.find((item) => item.lineCode === form.lineCode) ?? null;
-  const generatedMachineCode = `${form.lineCode || ""}${selectedMaster?.processCode || ""}${form.machineCodeSuffix || ""}`;
+  const resolvedMachineCodeSuffix = form.machineCodeSuffix ?? "";
+  const generatedMachineCode = `${form.lineCode || ""}${selectedMaster?.processCode || ""}${resolvedMachineCodeSuffix || ""}`;
   const dailyTemplates = useMemo(
     () => templates.filter((template) => String(template.checksheetMode).toLowerCase() === "daily"),
     [templates]
@@ -402,6 +469,39 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
             getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName} (${option.location})` : "")}
             renderInput={(params) => <TextField {...params} label="Line Master" />}
           />
+          {selectedMaster?.useStandNo && (
+            <TextField
+              label="Stand No."
+              value={form.standNo}
+              onChange={(event) => setForm((current) => ({ ...current, standNo: event.target.value }))}
+              helperText="Stored separately for checksheet submission display."
+            />
+          )}
+          {selectedMaster?.useSubAssyNo && (
+            <TextField
+              label="Sub Assy No."
+              value={form.subAssyNo}
+              onChange={(event) => setForm((current) => ({ ...current, subAssyNo: event.target.value }))}
+              helperText="Stored separately for checksheet submission display."
+            />
+          )}
+          {selectedMaster?.useMachineCode && (
+            <TextField
+              select
+              label="Machine Code"
+              value={form.machineCodes}
+              onChange={(event) => setForm((current) => ({ ...current, machineCodes: event.target.value }))}
+              SelectProps={{ multiple: true, renderValue: (selected) => selected.join(", ") }}
+              helperText="Stored separately for checksheet submission display."
+            >
+              {MACHINE_CODE_OPTIONS.map((machineCode) => (
+                <MenuItem key={machineCode} value={machineCode}>
+                  <Checkbox checked={form.machineCodes.includes(machineCode)} />
+                  {machineCode}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
           <TextField
             label="Machine Code Suffix"
             value={form.machineCodeSuffix}
@@ -409,7 +509,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
             disabled={mode === "edit"}
             helperText={mode === "edit"
               ? "Stored machine code suffix."
-              : "Stored machine code format: line code + process code + machine code suffix."}
+              : "Generated machine code format: line code + process code + machine code suffix."}
           />
           <TextField
             label="Generated Machine Code"
@@ -454,8 +554,20 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
                     value={repairForm.title}
                     onChange={(event) => updateRepairForm(repairForm.formKey, { title: event.target.value })}
                     fullWidth
-                    helperText={`Shown as ${index + 1}. ${repairForm.title?.trim() || "Untitled repair form"}`}
                   />
+                  <TextField
+                    select
+                    label="Format"
+                    value={repairForm.formatType === "extended" ? "extended" : "standard"}
+                    onChange={(event) => updateRepairForm(repairForm.formKey, { formatType: event.target.value })}
+                    sx={{ minWidth: 220 }}
+                  >
+                    {REPAIR_FORM_FORMAT_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </TextField>
                   <IconButton
                     color="error"
                     onClick={() => removeRepairForm(repairForm.formKey)}
@@ -479,7 +591,7 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
                       onChange={() => toggleMode(modeOption)}
                     />
                   }
-                  label={modeOption}
+                  label={modeOption.toLocaleUpperCase()}
                   sx={{
                     m: 0,
                     px: 1.25,
@@ -525,8 +637,8 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
         <Button onClick={onClose} disabled={isPending}>Cancel</Button>
         <Button
           variant="contained"
-          onClick={() => onSubmit({ ...form, repairForms: normalizedRepairForms })}
-          disabled={isPending || !form.machineCodeSuffix.trim() || !form.checksheetMasterId || !form.lineCode || !form.multiProductNo.trim() || form.groupCodes.length === 0 || normalizedRepairForms.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
+          onClick={() => onSubmit({ ...form, machineCodeSuffix: resolvedMachineCodeSuffix, repairForms: normalizedRepairForms })}
+          disabled={isPending || !resolvedMachineCodeSuffix.trim() || !form.checksheetMasterId || !form.lineCode || !form.multiProductNo.trim() || form.groupCodes.length === 0 || normalizedRepairForms.length === 0 || form.modes.length === 0 || !isModeTemplateValid}
         >
           {isPending ? "Saving..." : "Save"}
         </Button>
@@ -582,8 +694,8 @@ export function ChecksheetAreasPage() {
       description="Manage location master used by line master selection."
       action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Area</Button>}
     >
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table sx={{ minWidth: 980 }}>
           <TableHead>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -595,7 +707,14 @@ export function ChecksheetAreasPage() {
                     <TableCell
                       key={header.id}
                       align={isLastColumn ? "right" : "left"}
-                      sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}
+                      sx={{
+                        ...getColumnSx(header.column.id, CHECKSHEET_MASTER_COLUMN_SX),
+                        py: 1.5,
+                        pl: isFirstColumn ? 3 : 2.5,
+                        pr: isLastColumn ? 3 : 2.5,
+                        whiteSpace: "nowrap",
+                        fontWeight: 700
+                      }}
                     >
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableCell>
@@ -620,7 +739,13 @@ export function ChecksheetAreasPage() {
                       <TableCell
                         key={cell.id}
                         align={isLastColumn ? "right" : "left"}
-                        sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}
+                        sx={{
+                          ...getColumnSx(cell.column.id, CHECKSHEET_MASTER_COLUMN_SX),
+                          py: 1.5,
+                          pl: isFirstColumn ? 3 : 2.5,
+                          pr: isLastColumn ? 3 : 2.5,
+                          verticalAlign: "top"
+                        }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
@@ -714,8 +839,8 @@ export function ChecksheetLineMastersPage() {
       description="Set up line code, line name, and location master selection."
       action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Line</Button>}
     >
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table sx={{ minWidth: 2160 }}>
           <TableHead>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -943,6 +1068,19 @@ export function ChecksheetMastersPage() {
       { accessorKey: "processName", header: "Process" },
       { accessorKey: "checksheetName", header: "Checksheet" },
       {
+        id: "entryFields",
+        header: "Line Entry Fields",
+        cell: ({ row }) => {
+          const enabledFields = CHECKSHEET_MASTER_ENTRY_FIELDS.filter((field) => row.original[field.key]);
+
+          return enabledFields.length > 0 ? (
+            <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
+              {enabledFields.map((field) => <Chip key={field.key} size="small" label={field.label.replace("Use ", "")} />)}
+            </Stack>
+          ) : "-";
+        }
+      },
+      {
         id: "status",
         header: "Status",
         cell: ({ row }) => (row.original.isActive ? "Active" : "Inactive")
@@ -977,8 +1115,8 @@ export function ChecksheetMastersPage() {
       description="Manage checksheet master. Line and group mapping are defined at checksheet line level."
       action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Checksheet Master</Button>}
     >
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table sx={{ minWidth: 1180 }}>
           <TableHead>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -990,7 +1128,7 @@ export function ChecksheetMastersPage() {
                     <TableCell
                       key={header.id}
                       align={isLastColumn ? "right" : "left"}
-                      sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}
+                      sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2, ...getColumnSx(header.column.id, CHECKSHEET_MASTER_COLUMN_SX) }}
                     >
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableCell>
@@ -1015,7 +1153,7 @@ export function ChecksheetMastersPage() {
                       <TableCell
                         key={cell.id}
                         align={isLastColumn ? "right" : "left"}
-                        sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}
+                        sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2, ...getColumnSx(cell.column.id, CHECKSHEET_MASTER_COLUMN_SX) }}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
@@ -1192,7 +1330,7 @@ export function ChecksheetLinesPage() {
           }
 
           return (
-            <Stack spacing={0.75} sx={{ minWidth: 240 }}>
+            <Stack spacing={0.75} sx={{ minWidth: 480 }}>
               {modeTemplates.map((item) => {
                 const mode = String(item.checksheetMode || "").toUpperCase();
                 const isDaily = mode === "DAILY";
@@ -1367,8 +1505,8 @@ export function ChecksheetLinesPage() {
         )}
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined">
-        <Table size="small">
+      <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto" }}>
+        <Table sx={{ minWidth: 2560 }}>
           <TableHead>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
@@ -1382,8 +1520,12 @@ export function ChecksheetLinesPage() {
                       key={header.id}
                       align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                       sx={{
-                        pl: isFirstColumn ? 3 : 2,
-                        pr: isLastColumn ? 3 : 2
+                        ...getColumnSx(header.column.id, CHECKSHEET_LINE_COLUMN_SX),
+                        py: 1.5,
+                        pl: isFirstColumn ? 3 : 2.5,
+                        pr: isLastColumn ? 3 : 2.5,
+                        whiteSpace: "nowrap",
+                        fontWeight: 700
                       }}
                     >
                       {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
@@ -1413,8 +1555,10 @@ export function ChecksheetLinesPage() {
                         key={cell.id}
                         align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                         sx={{
-                          pl: isFirstColumn ? 3 : 2,
-                          pr: isLastColumn ? 3 : 2,
+                          ...getColumnSx(cell.column.id, CHECKSHEET_LINE_COLUMN_SX),
+                          py: 1.5,
+                          pl: isFirstColumn ? 3 : 2.5,
+                          pr: isLastColumn ? 3 : 2.5,
                           whiteSpace: "normal",
                           overflowWrap: "normal",
                           wordBreak: "normal",
@@ -1463,6 +1607,9 @@ export function ChecksheetLinesPage() {
         onSubmit={async (payload) => {
           const basePayload = {
             machineCodeSuffix: payload.machineCodeSuffix,
+            standNo: payload.standNo,
+            subAssyNo: payload.subAssyNo,
+            machineCodes: payload.machineCodes,
             checksheetMasterId: payload.checksheetMasterId,
             lineCode: payload.lineCode,
             multiProductNo: payload.multiProductNo,

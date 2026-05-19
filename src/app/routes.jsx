@@ -1,6 +1,8 @@
 import { lazy } from "react";
 import { Navigate } from "react-router-dom";
 import AuthGuard from "./auth/AuthGuard";
+import RoleGuard from "./auth/RoleGuard";
+import { authRoles } from "./auth/authRoles";
 import Loadable from "./components/Loadable";
 import MatxLayout from "./components/MatxLayout/MatxLayout";
 import sessionRoutes from "./views/sessions/session-routes";
@@ -24,6 +26,10 @@ const PendingApprovalsPage = Loadable(lazy(() => import("app/views/checksheets/P
 const PendingRepairApprovalsPage = Loadable(lazy(() => import("app/views/checksheets/PendingRepairApprovalsPage")));
 const ApprovalTemplatesPage = Loadable(lazy(() => import("app/views/checksheets/ApprovalTemplatesPage")));
 
+const adminRoles = authRoles.admin;
+const superAdminRoles = authRoles.sa;
+const withRoles = (element, roles) => <RoleGuard roles={roles}>{element}</RoleGuard>;
+
 const routes = [
   { path: "/", element: <Navigate to="dashboard" /> },
   {
@@ -35,17 +41,17 @@ const routes = [
     children: [
       ...materialRoutes,
       { path: "/dashboard", element: <DashboardPage /> },
-      { path: "/users", element: <UsersPage /> },
-      { path: "/master/checksheet-areas", element: <ChecksheetAreasPage /> },
-      { path: "/master/checksheet-line-masters", element: <ChecksheetLineMastersPage /> },
-      { path: "/master/checksheet-groups", element: <ChecksheetGroupsPage /> },
-      { path: "/master/checksheet-masters", element: <ChecksheetMastersPage /> },
-      { path: "/master/checksheet-lines", element: <ChecksheetLinesPage /> },
-      { path: "/master/repairman-checkers", element: <RepairmanCheckersPage /> },
-      { path: "/master/checksheet-step-approvers", element: <ChecksheetStepApproversPage /> },
-      { path: "/master/checksheet-templates", element: <ChecksheetTemplatesPage /> },
-      { path: "/master/checksheet-templates/new", element: <ChecksheetTemplatesPage /> },
-      { path: "/master/checksheet-templates/:id/edit", element: <ChecksheetTemplatesPage /> },
+      { path: "/users", element: withRoles(<UsersPage />, adminRoles) },
+      { path: "/master/checksheet-areas", element: withRoles(<ChecksheetAreasPage />, superAdminRoles) },
+      { path: "/master/checksheet-line-masters", element: withRoles(<ChecksheetLineMastersPage />, adminRoles) },
+      { path: "/master/checksheet-groups", element: withRoles(<ChecksheetGroupsPage />, superAdminRoles) },
+      { path: "/master/checksheet-masters", element: withRoles(<ChecksheetMastersPage />, adminRoles) },
+      { path: "/master/checksheet-lines", element: withRoles(<ChecksheetLinesPage />, adminRoles) },
+      { path: "/master/repairman-checkers", element: withRoles(<RepairmanCheckersPage />, adminRoles) },
+      { path: "/master/checksheet-step-approvers", element: withRoles(<ChecksheetStepApproversPage />, adminRoles) },
+      { path: "/master/checksheet-templates", element: withRoles(<ChecksheetTemplatesPage />, superAdminRoles) },
+      { path: "/master/checksheet-templates/new", element: withRoles(<ChecksheetTemplatesPage />, superAdminRoles) },
+      { path: "/master/checksheet-templates/:id/edit", element: withRoles(<ChecksheetTemplatesPage />, superAdminRoles) },
       { path: "/checksheets/templates", element: <Navigate to="/master/checksheet-templates" replace /> },
       { path: "/checksheets/submissions", element: <ChecksheetSubmissionsPage /> },
       { path: "/checksheets/repairs", element: <ChecksheetRepairHistoryPage /> },
@@ -54,7 +60,7 @@ const routes = [
       { path: "/checksheets/submissions/:id/monthly", element: <ChecksheetSubmissionMonthlyPage /> },
       { path: "/approvals/pending", element: <PendingApprovalsPage /> },
       { path: "/approvals/repairs", element: <PendingRepairApprovalsPage /> },
-      { path: "/approvals/templates", element: <ApprovalTemplatesPage /> }
+      { path: "/approvals/templates", element: withRoles(<ApprovalTemplatesPage />, adminRoles) }
     ]
   },
 

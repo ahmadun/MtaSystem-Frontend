@@ -4,6 +4,7 @@ import styled from "@mui/material/styles/styled";
 
 import { MatxVerticalNav } from "app/components";
 import useSettings from "app/hooks/useSettings";
+import useAuth from "app/hooks/useAuth";
 import navigations from "app/navigations";
 
 // STYLED COMPONENTS
@@ -27,6 +28,26 @@ const SideNavMobile = styled("div")(({ theme }) => ({
 
 export default function Sidenav({ children }) {
   const { settings, updateSettings } = useSettings();
+  const { user } = useAuth();
+
+  const filterNavigationsByRole = (items) => {
+    return items.reduce((result, item) => {
+      if (item.auth?.length && !item.auth.includes(user?.role)) return result;
+
+      if (item.children) {
+        const filteredChildren = filterNavigationsByRole(item.children);
+        if (!filteredChildren.length) return result;
+
+        result.push({ ...item, children: filteredChildren });
+        return result;
+      }
+
+      result.push(item);
+      return result;
+    }, []);
+  };
+
+  const visibleNavigations = filterNavigationsByRole(navigations);
 
   const updateSidebarMode = (sidebarSettings) => {
     let activeLayoutSettingsName = settings.activeLayout + "Settings";
@@ -45,7 +66,7 @@ export default function Sidenav({ children }) {
     <Fragment>
       <StyledScrollBar options={{ suppressScrollX: true }}>
         {children}
-        <MatxVerticalNav items={navigations} />
+        <MatxVerticalNav items={visibleNavigations} />
       </StyledScrollBar>
 
       <SideNavMobile onClick={() => updateSidebarMode({ mode: "close" })} />

@@ -33,6 +33,12 @@ import {
   usePendingRepairRecords
 } from "app/hooks/useChecksheets";
 
+const APPROVAL_STATUS_OPTIONS = [
+  { value: "pending", label: "Pending" },
+  { value: "finished", label: "Finished" },
+  { value: "all", label: "All" }
+];
+
 function formatDateTime(value) {
   if (!value) return "-";
 
@@ -53,7 +59,8 @@ export default function PendingRepairApprovalsPage() {
   const [filters, setFilters] = useState({
     checksheetMasterId: "",
     lineCode: "",
-    location: ""
+    location: "",
+    approvalStatus: "pending"
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -78,14 +85,15 @@ export default function PendingRepairApprovalsPage() {
     sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
-    location: filters.location || undefined
+    location: filters.location || undefined,
+    approvalStatus: filters.approvalStatus || undefined
   });
   const records = useMemo(() => data?.items ?? [], [data?.items]);
   const totalCount = data?.totalCount ?? 0;
 
   useEffect(() => {
     setPage(1);
-  }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
+  }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.approvalStatus]);
 
   useEffect(() => {
     setPage(1);
@@ -187,15 +195,27 @@ export default function PendingRepairApprovalsPage() {
         cell: ({ row }) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pr: 1.5 }}>
             <Button onClick={() => navigate(`/checksheets/submissions/${row.original.submissionId}`)}>Open</Button>
-            <Button variant="contained" onClick={() => setTarget(row.original)}>
-              Approve
-            </Button>
+            {row.original.nextPendingLevel ? (
+              <Button variant="contained" onClick={() => setTarget(row.original)}>
+                Approve
+              </Button>
+            ) : (
+              <Button variant="outlined" disabled>
+                Finished
+              </Button>
+            )}
           </Stack>
         )
       }
     ],
     [navigate]
   );
+
+  const emptyMessage = filters.approvalStatus === "finished"
+    ? "No finished repair approvals."
+    : filters.approvalStatus === "all"
+      ? "No repair approval records found."
+      : "No pending repair approvals.";
 
   const table = useReactTable({
     data: records,
@@ -281,6 +301,21 @@ export default function PendingRepairApprovalsPage() {
                   </MenuItem>
                 ))}
               </TextField>
+
+              <TextField
+                select
+                size="small"
+                label="Approval Status"
+                value={filters.approvalStatus}
+                onChange={(event) => setFilters((current) => ({ ...current, approvalStatus: event.target.value }))}
+                sx={{ minWidth: 180, maxWidth: 220 }}
+              >
+                {APPROVAL_STATUS_OPTIONS.map((option) => (
+                  <MenuItem key={option.value} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </TextField>
             </Stack>
           </Stack>
         </Paper>
@@ -358,7 +393,7 @@ export default function PendingRepairApprovalsPage() {
                 {records.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>
-                      No pending repair approvals.
+                      {emptyMessage}
                     </TableCell>
                   </TableRow>
                 )}

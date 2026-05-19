@@ -47,17 +47,44 @@ import {
 
 const FIXED_OPTIONS = ["OK", "NG", "FIX"];
 const MONTH_DAY_COLUMN_WIDTH = 64;
+const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
+const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
+}
+
+function getMachineEntryDetails(source) {
+  return [
+    { label: "Stand No.", value: source?.standNo },
+    { label: "Sub Assy No.", value: source?.subAssyNo },
+    { label: "Machine Code", value: (source?.machineCodes ?? []).join(", ") }
+  ].filter((item) => String(item.value ?? "").trim());
+}
+
+function createEmptyRepairProduct(stage = "before", sortOrder = 1) {
+  return {
+    stage,
+    productSerial: "",
+    judgment: "OK",
+    sortOrder
+  };
 }
 
 function createEmptyRepairForm() {
   return {
     repairFormKey: "",
     repairDate: "",
+    repairCode: "",
+    repairTimeMinutes: "",
+    repairResult: "",
+    pointNo: "",
+    jigNo: "",
+    jigCode: "",
     damageDescription: "",
     repairDescription: "",
-    note: ""
+    note: "",
+    beforeProducts: [createEmptyRepairProduct("before", 1)],
+    afterProducts: [createEmptyRepairProduct("after", 1)]
   };
 }
 
@@ -66,9 +93,17 @@ function createRepairFormsState(repairForms) {
     accumulator[repairForm.formKey] = {
       repairFormKey: repairForm.formKey,
       repairDate: "",
+      repairCode: "",
+      repairTimeMinutes: "",
+      repairResult: "",
+      pointNo: "",
+      jigNo: "",
+      jigCode: "",
       damageDescription: "",
       repairDescription: "",
-      note: ""
+      note: "",
+      beforeProducts: [createEmptyRepairProduct("before", 1)],
+      afterProducts: [createEmptyRepairProduct("after", 1)]
     };
     return accumulator;
   }, {});
@@ -124,6 +159,10 @@ function getDateStringForEntry(entry, daySummary, monthValue, fallbackDate) {
   }
 
   return fallbackDate ?? `${monthValue}-01`;
+}
+
+function getInspectionDateForColumn(entry, daySummary) {
+  return daySummary?.inspectionDate ?? entry?.inspectionDate ?? null;
 }
 
 function createDefaultEntryValues(items) {
@@ -553,6 +592,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
   const monthlyItems = useMemo(() => monthlyView?.items ?? [], [monthlyView?.items]);
   const checksheetMode = normalizeChecksheetMode(monthlyView?.checksheetMode, "daily");
+  const machineEntryDetails = getMachineEntryDetails(monthlyView);
   const inspectionEntryMode = useMemo(
     () => normalizeInspectionEntryMode(monthlyView?.inspectionEntryMode ?? referenceView?.inspectionEntryMode),
     [monthlyView?.inspectionEntryMode, referenceView?.inspectionEntryMode]
@@ -751,16 +791,75 @@ export default function ChecksheetSubmissionMonthlyPage() {
       }
     }));
   };
+  const updateRepairProductValue = (repairFormKey, stage, index, patch) => {
+    const key = stage === "after" ? "afterProducts" : "beforeProducts";
+    setRepairFormsState((current) => {
+      const currentForm = current[repairFormKey] ?? createEmptyRepairForm();
+      const rows = currentForm[key]?.length ? currentForm[key] : [createEmptyRepairProduct(stage, 1)];
+
+      return {
+        ...current,
+        [repairFormKey]: {
+          ...currentForm,
+          repairFormKey,
+          [key]: rows.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row))
+        }
+      };
+    });
+  };
+  const addRepairProductRow = (repairFormKey, stage) => {
+    const key = stage === "after" ? "afterProducts" : "beforeProducts";
+    setRepairFormsState((current) => {
+      const currentForm = current[repairFormKey] ?? createEmptyRepairForm();
+      const rows = currentForm[key]?.length ? currentForm[key] : [];
+
+      return {
+        ...current,
+        [repairFormKey]: {
+          ...currentForm,
+          repairFormKey,
+          [key]: [...rows, createEmptyRepairProduct(stage, rows.length + 1)]
+        }
+      };
+    });
+  };
+  const removeRepairProductRow = (repairFormKey, stage, index) => {
+    const key = stage === "after" ? "afterProducts" : "beforeProducts";
+    setRepairFormsState((current) => {
+      const currentForm = current[repairFormKey] ?? createEmptyRepairForm();
+      const rows = (currentForm[key] ?? []).filter((_, rowIndex) => rowIndex !== index);
+
+      return {
+        ...current,
+        [repairFormKey]: {
+          ...currentForm,
+          repairFormKey,
+          [key]: rows.length ? rows.map((row, rowIndex) => ({ ...row, sortOrder: rowIndex + 1 })) : [createEmptyRepairProduct(stage, 1)]
+        }
+      };
+    });
+  };
 
   const handleSaveRepairRecord = (repairFormKey) => {
     const currentRepairForm = repairFormsState[repairFormKey] ?? createEmptyRepairForm();
+    const products = [
+      ...(currentRepairForm.beforeProducts ?? []).map((product, index) => ({ ...product, stage: "before", sortOrder: index + 1 })),
+      ...(currentRepairForm.afterProducts ?? []).map((product, index) => ({ ...product, stage: "after", sortOrder: index + 1 }))
+    ].filter((product) => product.productSerial?.trim());
     createRepairMutation.mutate(
       {
         repairFormKey,
         repairDate: currentRepairForm.repairDate || null,
+        repairCode: currentRepairForm.repairCode || null,
+        repairTimeMinutes: currentRepairForm.repairTimeMinutes === "" ? null : Number(currentRepairForm.repairTimeMinutes),
+        repairResult: currentRepairForm.repairResult.trim() || null,
+        pointNo: currentRepairForm.pointNo.trim() || null,
+        jigNo: currentRepairForm.jigNo.trim() || null,
+        jigCode: currentRepairForm.jigCode.trim() || null,
         damageDescription: currentRepairForm.damageDescription.trim(),
         repairDescription: currentRepairForm.repairDescription.trim(),
-        note: currentRepairForm.note.trim() || null
+        note: currentRepairForm.note.trim() || null,
+        products
       },
       {
         onSuccess: () => {
@@ -979,6 +1078,32 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   })}
                 </TableRow>
               ))}
+              {isModeRegular && modeInspectionEntryMode === "board" && (
+                <TableRow>
+                  <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
+                    Inspection Date
+                  </TableCell>
+                  {modeEntryColumns.map((entry) => {
+                    const daySummary = modeDaySummaryMap.get(entry.key);
+                    const inspectionDate = getInspectionDateForColumn(entry, daySummary);
+                    const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+
+                    return (
+                      <TableCell
+                        key={`${mode}-inspection-date-${entry.key}`}
+                        align="center"
+                        onClick={() => {
+                          setSelectedMode(mode);
+                          setSelectedEntryKey(entry.key);
+                        }}
+                        sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
+                      >
+                        {daySummary?.recordId || inspectionDate ? inspectionDate || "-" : "-"}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              )}
               <TableRow>
                 <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>Shift</TableCell>
                 {modeEntryColumns.map((entry) => {
@@ -1098,7 +1223,18 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">
                   <Typography variant="body2"><strong>Group:</strong> {monthlyView.groupCodes?.join(", ") || "-"}</Typography>
                   <Typography variant="body2"><strong>Status:</strong> {formatSubmissionStatus(monthlyView.status)}</Typography>
+                  <Typography variant="body2"><strong>Process:</strong> {monthlyView.processName || "-"}</Typography>
+                  <Typography variant="body2"><strong>Checksheet:</strong> {monthlyView.checksheetName || "-"}</Typography>
                 </Stack>
+                {machineEntryDetails.length > 0 && (
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">
+                    {machineEntryDetails.map((detail) => (
+                      <Typography key={detail.label} variant="body2">
+                        <strong>{detail.label}:</strong> {detail.value}
+                      </Typography>
+                    ))}
+                  </Stack>
+                )}
               </Stack>
 
               <Stack spacing={1.5} sx={{ minWidth: { lg: 260 } }}>
@@ -1404,6 +1540,78 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                                   {record.repairDescription}
                                 </Typography>
+                                {(repairFormDefinition.formatType === "extended" || record.repairCode || record.repairResult) && (
+                                  <Stack spacing={1} sx={{ mt: 1 }}>
+                                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                                      <Chip size="small" variant="outlined" label={`Code ${record.repairCode || "-"}`} />
+                                      <Chip size="small" variant="outlined" label={`${record.repairTimeMinutes ?? "-"} min`} />
+                                      <Chip size="small" variant="outlined" label={`Point ${record.pointNo || "-"}`} />
+                                      <Chip size="small" variant="outlined" label={`Jig ${record.jigNo || "-"}`} />
+                                      <Chip size="small" variant="outlined" label={`Jig Code ${record.jigCode || "-"}`} />
+                                    </Stack>
+                                    {record.repairResult && (
+                                      <Typography variant="body2" color="text.secondary">
+                                        Result: {record.repairResult}
+                                      </Typography>
+                                    )}
+                                    {(record.products?.length ?? 0) > 0 && (
+                                      <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} sx={{ alignItems: "stretch" }}>
+                                        {["before", "after"].map((stage) => {
+                                          const productRows = record.products.filter((product) => product.stage === stage);
+                                          return (
+                                            <Box
+                                              key={stage}
+                                              sx={{
+                                                flex: 1,
+                                                minWidth: 260,
+                                                border: 1,
+                                                borderColor: "divider",
+                                                borderRadius: 1,
+                                                overflow: "hidden"
+                                              }}
+                                            >
+                                              <Box sx={{ px: 1.5, py: 1, bgcolor: "grey.50", borderBottom: 1, borderColor: "divider" }}>
+                                                <Typography variant="subtitle2">
+                                                  {stage === "before" ? "Before Reparation" : "After Reparation"}
+                                                </Typography>
+                                              </Box>
+                                              <Stack divider={<Box sx={{ borderTop: 1, borderColor: "divider" }} />}>
+                                                {productRows.length > 0 ? productRows.map((product) => (
+                                                  <Box
+                                                    key={product.id || `${stage}-${product.sortOrder}`}
+                                                    sx={{
+                                                      display: "grid",
+                                                      gridTemplateColumns: { xs: "1fr auto", sm: "minmax(0, 1fr) 76px" },
+                                                      gap: 1.5,
+                                                      alignItems: "center",
+                                                      px: 1.5,
+                                                      py: 1
+                                                    }}
+                                                  >
+                                                    <Typography variant="body2" sx={{ overflowWrap: "anywhere" }}>
+                                                      {product.productSerial || "-"}
+                                                    </Typography>
+                                                    <Chip
+                                                      size="small"
+                                                      label={product.judgment || "-"}
+                                                      color={product.judgment === "NG" ? "error" : "success"}
+                                                      variant="outlined"
+                                                      sx={{ justifySelf: "end", minWidth: 56, fontWeight: 700 }}
+                                                    />
+                                                  </Box>
+                                                )) : (
+                                                  <Typography variant="body2" color="text.secondary" sx={{ px: 1.5, py: 1 }}>
+                                                    No product rows.
+                                                  </Typography>
+                                                )}
+                                              </Stack>
+                                            </Box>
+                                          );
+                                        })}
+                                      </Stack>
+                                    )}
+                                  </Stack>
+                                )}
                                 {record.note && (
                                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
                                     Note: {record.note}
@@ -1480,7 +1688,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
             deleteRepairMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
           }}
         />
-        <Dialog open={!!activeRepairFormDefinition} onClose={handleCloseRepairDialog} fullWidth maxWidth="sm">
+        <Dialog open={!!activeRepairFormDefinition} onClose={handleCloseRepairDialog} fullWidth maxWidth="md">
           <DialogTitle>
             {activeRepairFormDefinition
               ? `Add Repair Record: ${activeRepairFormDefinition.sortOrder}. ${activeRepairFormDefinition.title}`
@@ -1500,6 +1708,69 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 size="small"
                 disabled={createRepairMutation.isPending}
               />
+              {activeRepairFormDefinition?.formatType === "extended" && (
+                <>
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems="flex-start">
+                    <TextField
+                      select
+                      label="Repair Code"
+                      value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairCode}
+                      onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { repairCode: event.target.value })}
+                      size="small"
+                      sx={{ minWidth: 160 }}
+                      disabled={createRepairMutation.isPending}
+                    >
+                      {REPAIR_CODE_OPTIONS.map((code) => (
+                        <MenuItem key={code} value={code}>{code}</MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField
+                      label="Time (Minute)"
+                      type="number"
+                      value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairTimeMinutes}
+                      onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { repairTimeMinutes: event.target.value })}
+                      size="small"
+                      inputProps={{ min: 0 }}
+                      sx={{ minWidth: 180 }}
+                      disabled={createRepairMutation.isPending}
+                    />
+                  </Stack>
+                  <TextField
+                    label="No. Point"
+                    value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).pointNo}
+                    onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { pointNo: event.target.value })}
+                    size="small"
+                    fullWidth
+                    disabled={createRepairMutation.isPending}
+                  />
+                  <TextField
+                    label="No. Jig"
+                    value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).jigNo}
+                    onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { jigNo: event.target.value })}
+                    size="small"
+                    fullWidth
+                    disabled={createRepairMutation.isPending}
+                  />
+                  <TextField
+                    label="Jig Code"
+                    value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).jigCode}
+                    onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { jigCode: event.target.value })}
+                    size="small"
+                    fullWidth
+                    disabled={createRepairMutation.isPending}
+                  />
+                  <TextField
+                    label="Repair Result"
+                    value={(repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).repairResult}
+                    onChange={(event) => updateRepairFormValue(activeRepairFormDefinition.formKey, { repairResult: event.target.value })}
+                    multiline
+                    minRows={2}
+                    size="small"
+                    fullWidth
+                    disabled={createRepairMutation.isPending}
+                  />
+                </>
+              )}
               <TextField
                 label="Damage Description"
                 value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).damageDescription : ""}
@@ -1524,6 +1795,61 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 size="small"
                 disabled={createRepairMutation.isPending}
               />
+              {activeRepairFormDefinition?.formatType === "extended" && (
+                <Stack spacing={2}>
+                  {[
+                    { key: "beforeProducts", stage: "before", title: "Before Reparation" },
+                    { key: "afterProducts", stage: "after", title: "After Reparation" }
+                  ].map((section) => {
+                    const currentRows = (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm())[section.key] ?? [];
+                    return (
+                      <Paper key={section.stage} variant="outlined" sx={{ p: 1.5 }}>
+                        <Stack spacing={1.25}>
+                          <Stack direction="row" justifyContent="space-between" alignItems="center">
+                            <Typography variant="subtitle2">{section.title}</Typography>
+                            <Button size="small" onClick={() => addRepairProductRow(activeRepairFormDefinition.formKey, section.stage)} disabled={createRepairMutation.isPending}>
+                              Add Row
+                            </Button>
+                          </Stack>
+                          {currentRows.map((product, index) => (
+                            <Stack key={`${section.stage}-${index}`} direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "flex-start" }}>
+                              <TextField
+                                label="Product Serial"
+                                value={product.productSerial}
+                                onChange={(event) => updateRepairProductValue(activeRepairFormDefinition.formKey, section.stage, index, { productSerial: event.target.value })}
+                                size="small"
+                                fullWidth
+                                disabled={createRepairMutation.isPending}
+                              />
+                              <TextField
+                                select
+                                label="Judgment"
+                                value={product.judgment}
+                                onChange={(event) => updateRepairProductValue(activeRepairFormDefinition.formKey, section.stage, index, { judgment: event.target.value })}
+                                size="small"
+                                sx={{ minWidth: 130 }}
+                                disabled={createRepairMutation.isPending}
+                              >
+                                {REPAIR_JUDGMENT_OPTIONS.map((judgment) => (
+                                  <MenuItem key={judgment} value={judgment}>{judgment}</MenuItem>
+                                ))}
+                              </TextField>
+                              <IconButton
+                                color="error"
+                                onClick={() => removeRepairProductRow(activeRepairFormDefinition.formKey, section.stage, index)}
+                                disabled={createRepairMutation.isPending || currentRows.length === 1}
+                                sx={{ mt: { md: 0.25 }, alignSelf: { xs: "flex-end", md: "flex-start" } }}
+                              >
+                                <DeleteOutlineIcon />
+                              </IconButton>
+                            </Stack>
+                          ))}
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Stack>
+              )}
               <TextField
                 label="Note"
                 value={activeRepairFormDefinition ? (repairFormsState[activeRepairFormDefinition.formKey] ?? createEmptyRepairForm()).note : ""}

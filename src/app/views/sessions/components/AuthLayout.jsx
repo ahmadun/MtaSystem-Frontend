@@ -42,6 +42,7 @@ const ContentBox = styled("div")(() => ({
 export default function AuthLayout({
   title,
   subtitle,
+  systemName,
   image = "/assets/images/illustrations/dreamer.svg",
   imageAlt = "Authentication illustration",
   footer,
@@ -53,7 +54,22 @@ export default function AuthLayout({
         <Grid container sx={{ width: "100%" }}>
           <Grid size={{ sm: 5, xs: 12 }}>
             <div className="img-wrapper">
-              <img src={image} width="100%" alt={imageAlt} />
+              <Box sx={{ width: "100%", textAlign: "center" }}>
+                {systemName ? (
+                  <Typography
+                    variant="h5"
+                    component="div"
+                    fontWeight={800}
+                    sx={{
+                      mb: 3,
+                      color: "#000000"
+                    }}
+                  >
+                    {systemName}
+                  </Typography>
+                ) : null}
+                <img src={image} width="100%" alt={imageAlt} />
+              </Box>
             </div>
           </Grid>
 

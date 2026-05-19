@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Box,
@@ -49,7 +49,9 @@ import VerifiedUserOutlinedIcon from "@mui/icons-material/VerifiedUserOutlined";
 import { useFormik } from "formik";
 import * as Yup from "yup";
 import { useDebounce } from "use-debounce";
+import { getEmployeeByCode } from "/src/api/account";
 import useAuth from "app/hooks/useAuth";
+import { authRoles } from "app/auth/authRoles";
 import { ConfirmationDialog } from "app/components";
 import {
   useCreateUser,
@@ -65,18 +67,31 @@ const ROLE_OPTIONS = ["SuperAdmin", "Admin", "Manager", "Employee"];
 const getUserSchema = (isEdit) =>
   Yup.object({
     employeeId: Yup.number().nullable(),
+    employeeCode: Yup.string()
+      .matches(/^\d{0,6}$/, "NIK must be up to 6 digits")
+      .nullable(),
     username: Yup.string().required("Username is required").max(100),
     email: Yup.string().email("Enter a valid email").required("Email is required"),
     password: isEdit
       ? Yup.string().notRequired()
-      : Yup.string().required("Password is required").min(6, "Password must be at least 6 characters"),
+      : Yup.string()
+          .required("Password is required")
+          .min(8, "Password must be at least 8 characters")
+          .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+          .matches(/[a-z]/, "Password must contain at least one lowercase letter")
+          .matches(/[0-9]/, "Password must contain at least one digit"),
     role: Yup.string().oneOf(ROLE_OPTIONS).required("Role is required"),
     isActive: Yup.boolean(),
     mustChangePassword: Yup.boolean()
   });
 
 const resetPasswordSchema = Yup.object({
-  newPassword: Yup.string().required("New password is required").min(6, "Password must be at least 6 characters"),
+  newPassword: Yup.string()
+    .required("New password is required")
+    .min(8, "Password must be at least 8 characters")
+    .matches(/[A-Z]/, "Password must contain at least one uppercase letter")
+    .matches(/[a-z]/, "Password must contain at least one lowercase letter")
+    .matches(/[0-9]/, "Password must contain at least one digit"),
   mustChangePassword: Yup.boolean()
 });
 
@@ -132,14 +147,17 @@ function UserFormDialog({ open, onClose, userId }) {
   const { data: user, isLoading } = useUser(userId, { enabled: open && !!userId });
   const createMutation = useCreateUser();
   const updateMutation = useUpdateUser(userId);
+  const [employeeFullname, setEmployeeFullname] = useState("");
+  const [employeeLoading, setEmployeeLoading] = useState(false);
 
   const formik = useFormik({
     initialValues: {
       employeeId: user?.employeeId ?? "",
+      employeeCode: user?.employeeCode ?? "",
       username: user?.username ?? "",
       email: user?.email ?? "",
       password: "",
-      role: user?.role ?? "GUEST",
+      role: user?.role ?? "Employee",
       isActive: user?.isActive ?? true,
       mustChangePassword: user?.mustChangePassword ?? false
     },
@@ -147,7 +165,10 @@ function UserFormDialog({ open, onClose, userId }) {
     validationSchema: getUserSchema(isEdit),
     onSubmit: async (values, { resetForm }) => {
       const payload = {
-        employeeId: values.employeeId === "" ? null : Number(values.employeeId),
+        employeeId: values.employeeCode.trim()
+          ? null
+          : user?.employeeId ?? null,
+        employeeCode: values.employeeCode.trim() || null,
         username: values.username.trim(),
         email: values.email.trim(),
         role: values.role,
@@ -171,6 +192,37 @@ function UserFormDialog({ open, onClose, userId }) {
     }
   });
 
+  useEffect(() => {
+    if (!open) {
+      setEmployeeFullname("");
+      return;
+    }
+
+    setEmployeeFullname(user?.employeeName ?? "");
+  }, [open, user?.employeeName]);
+
+  const handleEmployeeCodeBlur = async (event) => {
+    const code = event.target.value?.trim();
+    setEmployeeFullname("");
+
+    if (!code) return;
+
+    setEmployeeLoading(true);
+
+    try {
+      const data = await getEmployeeByCode(code);
+      const fullName = data?.data?.fullName ?? data?.data?.fullname ?? data?.data?.name ?? "";
+
+      setEmployeeFullname(fullName);
+      if (!fullName) formik.setFieldError("employeeCode", "Employee not found.");
+    } catch {
+      setEmployeeFullname("");
+      formik.setFieldError("employeeCode", "Employee not found.");
+    } finally {
+      setEmployeeLoading(false);
+    }
+  };
+
   const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -187,14 +239,29 @@ function UserFormDialog({ open, onClose, userId }) {
           ) : (
             <Stack spacing={2} sx={{ mt: 1 }}>
               <TextField
-                label="Employee ID"
-                name="employeeId"
-                type="number"
-                value={formik.values.employeeId}
-                onChange={formik.handleChange}
-                onBlur={formik.handleBlur}
-                error={formik.touched.employeeId && !!formik.errors.employeeId}
-                helperText={formik.touched.employeeId && formik.errors.employeeId}
+                label="NIK"
+                name="employeeCode"
+                placeholder="Max 6 digits"
+                value={formik.values.employeeCode}
+                onChange={(event) => {
+                  const value = event.target.value.replace(/\D/g, "").slice(0, 6);
+                  formik.setFieldValue("employeeCode", value);
+                  setEmployeeFullname("");
+                }}
+                onBlur={(event) => {
+                  formik.handleBlur(event);
+                  handleEmployeeCodeBlur(event);
+                }}
+                error={formik.touched.employeeCode && !!formik.errors.employeeCode}
+                helperText={formik.touched.employeeCode && formik.errors.employeeCode}
+                fullWidth
+                inputProps={{ maxLength: 6, inputMode: "numeric", pattern: "[0-9]*" }}
+              />
+              <TextField
+                label="Fullname"
+                value={employeeFullname}
+                InputProps={{ readOnly: true }}
+                placeholder={employeeLoading ? "Loading..." : ""}
                 fullWidth
               />
               <TextField
@@ -386,7 +453,7 @@ export default function UsersPage() {
     ...(debouncedSearch.trim() ? { Name: debouncedSearch.trim() } : {})
   });
 
-  const canManageUsers = ["SuperAdmin", "Admin", "Manager"].includes(authUser?.role);
+  const canManageUsers = authRoles.admin.includes(authUser?.role);
   const pagedUsers = Array.isArray(usersResponse) ? null : usersResponse;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const users = Array.isArray(usersResponse) ? usersResponse : usersResponse?.items ?? [];
@@ -504,7 +571,7 @@ export default function UsersPage() {
   if (!canManageUsers) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="warning">Only `SA` and `ADMIN` roles can access user management.</Alert>
+        <Alert severity="warning">Only SuperAdmin and Admin roles can access user management.</Alert>
       </Box>
     );
   }

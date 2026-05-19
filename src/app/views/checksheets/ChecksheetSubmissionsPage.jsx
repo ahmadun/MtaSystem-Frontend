@@ -50,6 +50,7 @@ import {
 } from "app/hooks/useChecksheets";
 
 const SHIFT_OPTIONS = ["1", "2", "3"];
+const SUBMISSION_STATUS_OPTIONS = ["draft", "submitted", "approved", "rejected", "cancelled"];
 const defaultInspectionDate = () => new Date().toISOString().slice(0, 10);
 
 function formatSubmissionStatus(status) {
@@ -1132,7 +1133,8 @@ export default function ChecksheetSubmissionsPage() {
   const [filters, setFilters] = useState({
     checksheetMasterId: "",
     lineCode: "",
-    location: ""
+    location: "",
+    status: ""
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -1156,7 +1158,8 @@ export default function ChecksheetSubmissionsPage() {
     sortDirection: activeSort?.desc === false ? "asc" : "desc",
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
-    location: filters.location || undefined
+    location: filters.location || undefined,
+    status: filters.status || undefined
   });
   const deleteSubmissionMutation = useDeleteChecksheetSubmission();
   const submissions = useMemo(() => data?.items ?? [], [data?.items]);
@@ -1164,7 +1167,7 @@ export default function ChecksheetSubmissionsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters.checksheetMasterId, filters.lineCode, filters.location]);
+  }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.status]);
 
   useEffect(() => {
     setPage(1);
@@ -1424,6 +1427,22 @@ export default function ChecksheetSubmissionsPage() {
                 {areas.map((area) => (
                   <MenuItem key={area.areaCode} value={area.areaCode}>
                     {area.areaCode} - {area.areaName}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                select
+                size="small"
+                label="Status"
+                value={filters.status}
+                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                sx={{ minWidth: 180, maxWidth: 220 }}
+              >
+                <MenuItem value="">All</MenuItem>
+                {SUBMISSION_STATUS_OPTIONS.map((status) => (
+                  <MenuItem key={status} value={status}>
+                    {formatSubmissionStatus(status)}
                   </MenuItem>
                 ))}
               </TextField>

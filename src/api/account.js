@@ -25,6 +25,11 @@ const registerUser = async (data) => {
   return response.data;
 };
 
+const getEmployeeByCode = async (code) => {
+  const response = await apiClient.get(`/Auth/employee-by-code/${encodeURIComponent(code)}`);
+  return response.data;
+};
+
 const forgotPassword = async (data) =>
   tryRequest([
     () => apiClient.post("/Auth/forgot-password", data),
@@ -62,6 +67,7 @@ const updateMyProfile = async (data) =>
 export {
   changePassword,
   forgotPassword,
+  getEmployeeByCode,
   getMyProfile,
   registerUser,
   resetPassword,

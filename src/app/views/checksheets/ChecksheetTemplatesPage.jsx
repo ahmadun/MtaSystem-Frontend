@@ -28,6 +28,7 @@ import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-tabl
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import { authRoles } from "app/auth/authRoles";
 import useAuth from "app/hooks/useAuth";
 import { ConfirmationDialog } from "app/components";
 import {
@@ -619,7 +620,7 @@ export default function ChecksheetTemplatesPage() {
   const location = useLocation();
   const { id } = useParams();
   const { user } = useAuth();
-  const canManage = ["SuperAdmin", "Admin"].includes(user?.role);
+  const canManage = authRoles.sa.includes(user?.role);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);

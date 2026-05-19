@@ -1,3 +1,5 @@
+import { authRoles } from "app/auth/authRoles";
+
 const navigations = [
   {
     name: "Dashboard",
@@ -43,58 +45,69 @@ const navigations = [
       {
         name: "Approval Templates",
         iconText: "AT",
-        path: "/approvals/templates"
+        path: "/approvals/templates",
+        auth: authRoles.admin
       }
     ]
   },
   {
     name: "Master Management",
     icon: "group",
+    auth: authRoles.admin,
     children: [
       {
         name: "User",
         iconText: "AP",
-        path: "/users"
+        path: "/users",
+        auth: authRoles.admin
       },
       {
         name: "Form Templates",
         iconText: "FT",
-        path: "/master/checksheet-templates"
+        path: "/master/checksheet-templates",
+        auth: authRoles.sa
       },
       {
         name: "Checksheet Approver",
         iconText: "CA",
-        path: "/master/checksheet-step-approvers"
+        path: "/master/checksheet-step-approvers",
+        auth: authRoles.admin
       },
       {
         name: "Area Master",
         iconText: "AM",
-        path: "/master/checksheet-areas"
+        path: "/master/checksheet-areas",
+        auth: authRoles.sa
       },
       {
         name: "Line Master",
         iconText: "LM",
-        path: "/master/checksheet-line-masters"
+        path: "/master/checksheet-line-masters",
+        auth: authRoles.admin
       },
       {
         name: "Group Master",
         iconText: "GM",
-        path: "/master/checksheet-groups"
+        path: "/master/checksheet-groups",
+        auth: authRoles.sa
       },
       {
         name: "Checksheet Masters",
         iconText: "CM",
-        path: "/master/checksheet-masters"
+        path: "/master/checksheet-masters",
+        auth: authRoles.admin
       },
       {
         name: "Checksheet Lines",
         iconText: "CL",
-        path: "/master/checksheet-lines"
+        path: "/master/checksheet-lines",
+        auth: authRoles.admin
       },
       {
         name: "Repairman Checker",
         iconText: "RC",
-        path: "/master/repairman-checkers"
+        path: "/master/repairman-checkers",
+        auth: authRoles.admin
       }
     ]
   }

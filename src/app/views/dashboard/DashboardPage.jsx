@@ -269,6 +269,9 @@ export default function DashboardPage() {
             <Button variant="outlined" startIcon={<FactCheckIcon />} onClick={() => navigate("/checksheets/submissions")}>
               Transactions
             </Button>
+            <Button variant="outlined" startIcon={<BuildCircleIcon />} onClick={() => navigate("/approvals/repairs")}>
+              Repair Approvals
+            </Button>
             <Button variant="contained" startIcon={<VerifiedIcon />} onClick={() => navigate("/approvals/pending")}>
               My Approvals
             </Button>

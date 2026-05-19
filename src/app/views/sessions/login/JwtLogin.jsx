@@ -4,7 +4,6 @@ import { Formik } from "formik";
 import * as Yup from "yup";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
-import Checkbox from "@mui/material/Checkbox";
 import Link from "@mui/material/Link";
 import TextField from "@mui/material/TextField";
 import LoadingButton from "@mui/lab/LoadingButton";
@@ -15,8 +14,7 @@ import AuthLayout from "../components/AuthLayout";
 
 const initialValues = {
   username: "admin",
-  password: "Admin1234",
-  remember: true
+  password: "Admin1234"
 };
 
 const validationSchema = Yup.object().shape({
@@ -54,7 +52,8 @@ export default function JwtLogin() {
   return (
     <AuthLayout
       title="Welcome back"
-      subtitle="Sign in to manage projects, approvals, tasks, and your account."
+      subtitle="Sign in to manage checksheet submissions, approvals, repair records."
+      systemName="MTA CheckSheet System"
       image="/assets/images/icon.svg"
       imageAlt="MTA CheckSheet"
       footer={
@@ -117,18 +116,7 @@ export default function JwtLogin() {
               sx={{ mb: 1.5 }}
             />
 
-            <Box display="flex" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-              <Box display="flex" alignItems="center" gap={1}>
-                <Checkbox
-                  size="small"
-                  name="remember"
-                  onChange={handleChange}
-                  checked={values.remember}
-                  sx={{ padding: 0 }}
-                />
-                <Paragraph>Remember Me</Paragraph>
-              </Box>
-
+            <Box display="flex" justifyContent="flex-end" alignItems="center" sx={{ mb: 2 }}>
               <Link component={NavLink} to="/session/forgot-password" underline="hover">
                 Forgot password?
               </Link>
