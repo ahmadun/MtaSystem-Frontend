@@ -92,6 +92,12 @@ const navigations = [
         auth: authRoles.sa
       },
       {
+        name: "Machine Code",
+        iconText: "MC",
+        path: "/master/checksheet-machine-codes",
+        auth: authRoles.admin
+      },
+      {
         name: "Checksheet Masters",
         iconText: "CM",
         path: "/master/checksheet-masters",

@@ -39,6 +39,7 @@ import {
   useChecksheetLines,
   useChecksheetMachines,
   useChecksheetMasters,
+  useChecksheetMachineCodeOptions,
   useChecksheetTemplates,
   useCreateChecksheetArea,
   useCreateChecksheetGroup,
@@ -55,12 +56,14 @@ import {
   useUpdateChecksheetLine,
   useUpdateChecksheetMachine,
   useUpdateChecksheetMaster,
+  useCreateChecksheetMachineCodeOption,
+  useUpdateChecksheetMachineCodeOption,
+  useDeleteChecksheetMachineCodeOption,
   useExportChecksheetMachineLabels,
   useUpsertChecksheetMachineModeTemplate
 } from "app/hooks/useChecksheets";
 
 const MODE_OPTIONS = ["daily", "regular"];
-const MACHINE_CODE_OPTIONS = ["CPG", "CPG2", "MPC"];
 const CHECKSHEET_MASTER_ENTRY_FIELDS = [
   { key: "useStandNo", label: "Use Stand No." },
   { key: "useSubAssyNo", label: "Use Sub Assy No." },
@@ -137,7 +140,7 @@ function PageShell({ title, description, action, children }) {
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
-        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "flex-start" }} spacing={2}>
           <Box>
             <Typography variant="h5" fontWeight={700}>{title}</Typography>
             <Typography variant="body2" color="text.secondary">{description}</Typography>
@@ -274,6 +277,53 @@ function GroupDialog({ open, mode, initialData, onClose, onSubmit, isPending }) 
   );
 }
 
+function MachineCodeOptionDialog({ open, mode, initialData, onClose, onSubmit, isPending }) {
+  const [form, setForm] = useState({
+    machineCode: initialData?.machineCode ?? "",
+    description: initialData?.description ?? "",
+    isActive: initialData?.isActive ?? true
+  });
+
+  useEffect(() => {
+    setForm({
+      machineCode: initialData?.machineCode ?? "",
+      description: initialData?.description ?? "",
+      isActive: initialData?.isActive ?? true
+    });
+  }, [initialData]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle>{mode === "edit" ? "Edit Machine Code" : "Create Machine Code"}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <TextField
+            label="Machine Code"
+            value={form.machineCode}
+            onChange={(event) => setForm((current) => ({ ...current, machineCode: event.target.value.replace(/[^a-zA-Z0-9_-]/g, "").toUpperCase() }))}
+            disabled={mode === "edit"}
+          />
+          <TextField
+            label="Description"
+            value={form.description}
+            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+          />
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Switch checked={form.isActive} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />
+            <Typography>{form.isActive ? "Active" : "Inactive"}</Typography>
+          </Stack>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={isPending}>Cancel</Button>
+        <Button variant="contained" onClick={() => onSubmit(form)} disabled={isPending || !form.machineCode.trim()}>
+          {isPending ? "Saving..." : "Save"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, isPending }) {
   const [form, setForm] = useState({
     processCode: initialData?.processCode ?? "",
@@ -350,7 +400,7 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
   );
 }
 
-function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, lines, groups, templates, onClose, onSubmit, isPending }) {
+function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, lines, groups, templates, machineCodeOptions, onClose, onSubmit, isPending }) {
   const initialMaster = checksheetMasters.find((item) => item.id === initialData?.checksheetMasterId);
   const initialMachineCodeSuffix = initialData?.machineCodeSuffix
     ?? extractMachineCodeSuffix(initialData?.machineCode, initialData?.lineCode, initialMaster?.processCode);
@@ -492,12 +542,12 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
               value={form.machineCodes}
               onChange={(event) => setForm((current) => ({ ...current, machineCodes: event.target.value }))}
               SelectProps={{ multiple: true, renderValue: (selected) => selected.join(", ") }}
-              helperText="Stored separately for checksheet submission display."
+              helperText={machineCodeOptions.length === 0 ? "No active machine code options available." : "Stored separately for checksheet submission display."}
             >
-              {MACHINE_CODE_OPTIONS.map((machineCode) => (
-                <MenuItem key={machineCode} value={machineCode}>
-                  <Checkbox checked={form.machineCodes.includes(machineCode)} />
-                  {machineCode}
+              {machineCodeOptions.map((option) => (
+                <MenuItem key={option.machineCode} value={option.machineCode}>
+                  <Checkbox checked={form.machineCodes.includes(option.machineCode)} />
+                  {option.description ? `${option.machineCode} - ${option.description}` : option.machineCode}
                 </MenuItem>
               ))}
             </TextField>
@@ -1054,6 +1104,128 @@ export function ChecksheetGroupsPage() {
   );
 }
 
+export function ChecksheetMachineCodeOptionsPage() {
+  const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const { data: machineCodeOptions = [], isLoading, isError, error } = useChecksheetMachineCodeOptions();
+  const createMachineCodeOption = useCreateChecksheetMachineCodeOption();
+  const updateMachineCodeOption = useUpdateChecksheetMachineCodeOption(dialogState.data?.machineCode);
+  const deleteMachineCodeOption = useDeleteChecksheetMachineCodeOption();
+
+  const columns = useMemo(
+    () => [
+      { accessorKey: "machineCode", header: "Machine Code" },
+      { accessorKey: "description", header: "Description", cell: ({ row }) => row.original.description || "-" },
+      {
+        id: "status",
+        header: "Status",
+        cell: ({ row }) => (row.original.isActive ? "Active" : "Inactive")
+      },
+      {
+        id: "action",
+        header: () => <Box sx={{ textAlign: "right", pr: 1.5 }}>Action</Box>,
+        cell: ({ row }) => (
+          <Box sx={{ textAlign: "right", display: "flex", justifyContent: "flex-end", gap: 1, pr: 1.5 }}>
+            <IconButton onClick={() => setDialogState({ open: true, mode: "edit", data: row.original })}><EditOutlinedIcon /></IconButton>
+            <IconButton color="error" onClick={() => setDeleteTarget({ id: row.original.machineCode, name: row.original.machineCode })}><DeleteOutlineIcon /></IconButton>
+          </Box>
+        )
+      }
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: machineCodeOptions,
+    columns,
+    getCoreRowModel: getCoreRowModel()
+  });
+
+  if (isError) {
+    return <Box sx={{ p: 3 }}><Alert severity="error">{error.message}</Alert></Box>;
+  }
+
+  return (
+    <PageShell
+      title="Machine Code Master"
+      description="Manage machine code options used by Checksheet Line entry."
+      action={<Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>Add Machine Code</Button>}
+    >
+      <TableContainer component={Paper} variant="outlined">
+        <Table size="small">
+          <TableHead>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header, index) => {
+                  const isFirstColumn = index === 0;
+                  const isLastColumn = index === headerGroup.headers.length - 1;
+
+                  return (
+                    <TableCell key={header.id} align={isLastColumn ? "right" : "left"} sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}>
+                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                    </TableCell>
+                  );
+                })}
+              </TableRow>
+            ))}
+          </TableHead>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>Loading machine codes...</TableCell>
+              </TableRow>
+            ) : table.getRowModel().rows.length > 0 ? (
+              table.getRowModel().rows.map((row) => (
+                <TableRow key={row.id} hover>
+                  {row.getVisibleCells().map((cell, index) => {
+                    const isFirstColumn = index === 0;
+                    const isLastColumn = index === row.getVisibleCells().length - 1;
+
+                    return (
+                      <TableCell key={cell.id} align={isLastColumn ? "right" : "left"} sx={{ pl: isFirstColumn ? 3 : 2, pr: isLastColumn ? 3 : 2 }}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    );
+                  })}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>No machine codes found.</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+
+      <MachineCodeOptionDialog
+        open={dialogState.open}
+        mode={dialogState.mode}
+        initialData={dialogState.data}
+        onClose={() => setDialogState({ open: false, mode: "create", data: null })}
+        isPending={createMachineCodeOption.isPending || updateMachineCodeOption.isPending}
+        onSubmit={(payload) => {
+          const action = dialogState.mode === "edit"
+            ? updateMachineCodeOption.mutateAsync({ description: payload.description, isActive: payload.isActive })
+            : createMachineCodeOption.mutateAsync(payload);
+          action.then(() => setDialogState({ open: false, mode: "create", data: null }));
+        }}
+      />
+
+      <ConfirmationDialog
+        open={!!deleteTarget}
+        title="Delete Machine Code"
+        text={`Delete "${deleteTarget?.name}"?`}
+        confirmText="Delete"
+        confirmColor="error"
+        isLoading={deleteMachineCodeOption.isPending}
+        onConfirmDialogClose={() => setDeleteTarget(null)}
+        onYesClick={() => deleteMachineCodeOption.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) })}
+      />
+    </PageShell>
+  );
+}
+
 export function ChecksheetMastersPage() {
   const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -1211,6 +1383,7 @@ export function ChecksheetLinesPage() {
   const { data: lines = [] } = useChecksheetLines();
   const { data: areas = [] } = useChecksheetAreas();
   const { data: groups = [] } = useChecksheetGroups();
+  const { data: machineCodeOptions = [] } = useChecksheetMachineCodeOptions();
   const { data: machinesPage, isLoading, isError, error } = useChecksheetMachines({
     page: page + 1,
     pageSize: rowsPerPage,
@@ -1420,7 +1593,7 @@ export function ChecksheetLinesPage() {
       title="Checksheet Line"
       description="Map machine to checksheet master, line master, and group, then assign mode and template."
       action={(
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "stretch", sm: "center" }}>
           <Button
             variant="outlined"
             startIcon={<DownloadOutlinedIcon />}
@@ -1602,6 +1775,7 @@ export function ChecksheetLinesPage() {
         lines={lines.filter((item) => item.isActive)}
         groups={groups.filter((item) => item.isActive)}
         templates={templates}
+        machineCodeOptions={machineCodeOptions.filter((item) => item.isActive)}
         onClose={() => setDialogState({ open: false, mode: "create", data: null })}
         isPending={createMachine.isPending || updateMachine.isPending || upsertModeTemplate.isPending}
         onSubmit={async (payload) => {

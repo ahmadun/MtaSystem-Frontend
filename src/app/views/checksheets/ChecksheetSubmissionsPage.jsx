@@ -33,6 +33,8 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import LaunchIcon from "@mui/icons-material/Launch";
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
+import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { getChecksheetSubmissions } from "@api/checksheets";
 import { authRoles } from "app/auth/authRoles";
 import { ConfirmationDialog } from "app/components";
@@ -71,6 +73,27 @@ function getMonthRange(dateValue) {
   const toDate = new Date(year, month, 0);
   const to = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
   return { from, to };
+}
+
+function monthValueToDate(monthValue) {
+  if (!monthValue) {
+    return null;
+  }
+
+  const [year, month] = String(monthValue).slice(0, 7).split("-").map(Number);
+  if (!year || !month) {
+    return null;
+  }
+
+  return new Date(year, month - 1, 1);
+}
+
+function dateToMonthValue(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatMonthLabel(dateValue) {
@@ -1134,7 +1157,8 @@ export default function ChecksheetSubmissionsPage() {
     checksheetMasterId: "",
     lineCode: "",
     location: "",
-    status: ""
+    status: "",
+    month: ""
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -1151,6 +1175,7 @@ export default function ChecksheetSubmissionsPage() {
     () => lines.find((line) => line.lineCode === filters.lineCode) ?? null,
     [filters.lineCode, lines]
   );
+  const monthRange = useMemo(() => getMonthRange(filters.month), [filters.month]);
   const { data, isLoading, isError, error, isFetching } = useChecksheetSubmissions({
     page,
     pageSize,
@@ -1159,7 +1184,9 @@ export default function ChecksheetSubmissionsPage() {
     checksheetMasterId: filters.checksheetMasterId || undefined,
     lineCode: filters.lineCode || undefined,
     location: filters.location || undefined,
-    status: filters.status || undefined
+    status: filters.status || undefined,
+    inspectionDateFrom: monthRange.from,
+    inspectionDateTo: monthRange.to
   });
   const deleteSubmissionMutation = useDeleteChecksheetSubmission();
   const submissions = useMemo(() => data?.items ?? [], [data?.items]);
@@ -1167,7 +1194,7 @@ export default function ChecksheetSubmissionsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.status]);
+  }, [filters.checksheetMasterId, filters.lineCode, filters.location, filters.status, filters.month]);
 
   useEffect(() => {
     setPage(1);
@@ -1344,14 +1371,14 @@ export default function ChecksheetSubmissionsPage() {
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
-        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "flex-start" }} spacing={2}>
           <Box>
             <Typography variant="h5" fontWeight={700}>Checksheet Transactions</Typography>
             <Typography variant="body2" color="text.secondary">
               Operators should scan the machine QR code on location, then continue directly into the inspection entry flow.
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "stretch", sm: "center" }}>
             <Button variant="contained" startIcon={<QrCodeScannerIcon />} onClick={() => setScanDialogOpen(true)}>
               Scan Machine QR
             </Button>
@@ -1377,77 +1404,100 @@ export default function ChecksheetSubmissionsPage() {
         </Stack>
 
         <Paper variant="outlined" sx={{ p: 2.5 }}>
-          <Stack spacing={2}>
-            <Typography variant="subtitle2" fontWeight={700}>
-              Filters
-            </Typography>
+          <LocalizationProvider dateAdapter={AdapterDateFns}>
+            <Stack spacing={2}>
+              <Typography variant="subtitle2" fontWeight={700}>
+                Filters
+              </Typography>
 
-            <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
-              <Autocomplete
-                options={checksheetMasters}
-                value={selectedChecksheetMaster}
-                onChange={(_, option) =>
-                  setFilters((current) => ({
-                    ...current,
-                    checksheetMasterId: option?.id ?? ""
-                  }))
-                }
-                isOptionEqualToValue={(option, value) => String(option.id) === String(value.id)}
-                getOptionLabel={(option) =>
-                  option?.id ? `${option.processCode} - ${option.processName} - ${option.checksheetName}` : ""
-                }
-                sx={{ minWidth: 420, maxWidth: 560, flexGrow: 1 }}
-                renderInput={(params) => <TextField {...params} size="small" label="Checksheet Master" placeholder="All" />}
-              />
+              <Stack direction="row" spacing={1.5} useFlexGap flexWrap="wrap" alignItems="flex-start">
+                <Autocomplete
+                  options={checksheetMasters}
+                  value={selectedChecksheetMaster}
+                  onChange={(_, option) =>
+                    setFilters((current) => ({
+                      ...current,
+                      checksheetMasterId: option?.id ?? ""
+                    }))
+                  }
+                  isOptionEqualToValue={(option, value) => String(option.id) === String(value.id)}
+                  getOptionLabel={(option) =>
+                    option?.id ? `${option.processCode} - ${option.processName} - ${option.checksheetName}` : ""
+                  }
+                  sx={{ minWidth: 420, maxWidth: 560, flexGrow: 1 }}
+                  renderInput={(params) => <TextField {...params} size="small" label="Checksheet Master" placeholder="All" />}
+                />
 
-              <Autocomplete
-                options={lines}
-                value={selectedLine}
-                onChange={(_, option) =>
-                  setFilters((current) => ({
-                    ...current,
-                    lineCode: option?.lineCode ?? ""
-                  }))
-                }
-                isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
-                getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName}` : "")}
-                sx={{ minWidth: 220, maxWidth: 260 }}
-                renderInput={(params) => <TextField {...params} size="small" label="Line" />}
-              />
+                <Autocomplete
+                  options={lines}
+                  value={selectedLine}
+                  onChange={(_, option) =>
+                    setFilters((current) => ({
+                      ...current,
+                      lineCode: option?.lineCode ?? ""
+                    }))
+                  }
+                  isOptionEqualToValue={(option, value) => option.lineCode === value.lineCode}
+                  getOptionLabel={(option) => (option?.lineCode ? `${option.lineCode} - ${option.lineName}` : "")}
+                  sx={{ minWidth: 220, maxWidth: 260 }}
+                  renderInput={(params) => <TextField {...params} size="small" label="Line" />}
+                />
 
-              <TextField
-                select
-                size="small"
-                label="Location"
-                value={filters.location}
-                onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
-                sx={{ minWidth: 180, maxWidth: 220 }}
-              >
-                <MenuItem value="">All</MenuItem>
-                {areas.map((area) => (
-                  <MenuItem key={area.areaCode} value={area.areaCode}>
-                    {area.areaCode} - {area.areaName}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Location"
+                  value={filters.location}
+                  onChange={(event) => setFilters((current) => ({ ...current, location: event.target.value }))}
+                  sx={{ minWidth: 180, maxWidth: 220 }}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  {areas.map((area) => (
+                    <MenuItem key={area.areaCode} value={area.areaCode}>
+                      {area.areaCode} - {area.areaName}
+                    </MenuItem>
+                  ))}
+                </TextField>
 
-              <TextField
-                select
-                size="small"
-                label="Status"
-                value={filters.status}
-                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-                sx={{ minWidth: 180, maxWidth: 220 }}
-              >
-                <MenuItem value="">All</MenuItem>
-                {SUBMISSION_STATUS_OPTIONS.map((status) => (
-                  <MenuItem key={status} value={status}>
-                    {formatSubmissionStatus(status)}
-                  </MenuItem>
-                ))}
-              </TextField>
+                <TextField
+                  select
+                  size="small"
+                  label="Status"
+                  value={filters.status}
+                  onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                  sx={{ minWidth: 180, maxWidth: 220 }}
+                >
+                  <MenuItem value="">All</MenuItem>
+                  {SUBMISSION_STATUS_OPTIONS.map((status) => (
+                    <MenuItem key={status} value={status}>
+                      {formatSubmissionStatus(status)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+
+                <DatePicker
+                  views={["year", "month"]}
+                  openTo="month"
+                  label="Month Period"
+                  value={monthValueToDate(filters.month)}
+                  onChange={(value) => {
+                    setFilters((current) => ({
+                      ...current,
+                      month: dateToMonthValue(value)
+                    }));
+                  }}
+                  format="MMMM yyyy"
+                  slotProps={{
+                    field: { clearable: true },
+                    textField: {
+                      size: "small",
+                      sx: { minWidth: 190, maxWidth: 220 }
+                    }
+                  }}
+                />
+              </Stack>
             </Stack>
-          </Stack>
+          </LocalizationProvider>
         </Paper>
 
         {isLoading ? (

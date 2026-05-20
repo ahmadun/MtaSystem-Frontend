@@ -47,7 +47,8 @@ const COLUMN_TYPES = [
 const ITEM_VALUE_TYPES = [
   { value: "fixed", label: "Fixed (OK/NG/FIX)" },
   { value: "free_text", label: "Free Text" },
-  { value: "number", label: "Number" }
+  { value: "number", label: "Number" },
+  { value: "jig_no_check", label: "Jig No Check" }
 ];
 
 const CHECKSHEET_MODES = [
@@ -57,8 +58,15 @@ const CHECKSHEET_MODES = [
 
 const INSPECTION_ENTRY_MODES = [
   { value: "date", label: "Date" },
-  { value: "board", label: "Board Code" }
+  { value: "board", label: "Board Code" },
+  { value: "weekly", label: "Weekly" }
 ];
+
+function formatInspectionEntryMode(value) {
+  if (value === "board") return "Board Code";
+  if (value === "weekly") return "Weekly";
+  return "Date";
+}
 
 function blankColumn(sortOrder) {
   return {
@@ -681,7 +689,7 @@ export default function ChecksheetTemplatesPage() {
         header: "Entry",
         cell: ({ row }) => (
           <Chip
-            label={row.original.inspectionEntryMode === "board" ? "Board Code" : "Date"}
+            label={formatInspectionEntryMode(row.original.inspectionEntryMode)}
             size="small"
             variant="outlined"
           />
@@ -750,7 +758,7 @@ export default function ChecksheetTemplatesPage() {
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
-        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "flex-start" }} spacing={2}>
           <Box>
             <Typography variant="h5" fontWeight={700}>Checksheet Templates</Typography>
             <Typography variant="body2" color="text.secondary">

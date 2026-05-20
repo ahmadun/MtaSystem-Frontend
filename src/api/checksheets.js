@@ -60,6 +60,11 @@ export const getChecksheetGroups = async () => {
   return response.data;
 };
 
+export const getChecksheetMachineCodeOptions = async () => {
+  const response = await apiClient.get("/checksheet-masters/machine-code-options");
+  return response.data;
+};
+
 export const getRepairmanCheckers = async (params) => {
   const response = await apiClient.get("/checksheet-masters/repairman-checkers", { params });
   return response.data;
@@ -114,6 +119,21 @@ export const updateChecksheetGroup = async (groupCode, data) => {
 
 export const deleteChecksheetGroup = async (groupCode) => {
   const response = await apiClient.delete(`/checksheet-masters/groups/${groupCode}`);
+  return response.data;
+};
+
+export const createChecksheetMachineCodeOption = async (data) => {
+  const response = await apiClient.post("/checksheet-masters/machine-code-options", data);
+  return response.data;
+};
+
+export const updateChecksheetMachineCodeOption = async (machineCode, data) => {
+  const response = await apiClient.put(`/checksheet-masters/machine-code-options/${machineCode}`, data);
+  return response.data;
+};
+
+export const deleteChecksheetMachineCodeOption = async (machineCode) => {
+  const response = await apiClient.delete(`/checksheet-masters/machine-code-options/${machineCode}`);
   return response.data;
 };
 
@@ -270,6 +290,11 @@ export const approveRepairRecord = async (submissionId, recordId) => {
   return response.data;
 };
 
+export const cancelRepairRecordApproval = async (submissionId, recordId) => {
+  const response = await apiClient.patch(`/checksheet-submissions/${submissionId}/repair-records/${recordId}/approval/cancel`);
+  return response.data;
+};
+
 export const deleteRepairRecord = async (submissionId, recordId) => {
   const response = await apiClient.delete(`/checksheet-submissions/${submissionId}/repair-records/${recordId}`);
   return response.data;
@@ -292,6 +317,16 @@ export const getApprovalTemplate = async (id) => {
 
 export const createApprovalTemplate = async (data) => {
   const response = await apiClient.post("/approval-templates", data);
+  return response.data;
+};
+
+export const updateApprovalTemplate = async (id, data) => {
+  const response = await apiClient.put(`/approval-templates/${id}`, data);
+  return response.data;
+};
+
+export const patchApprovalTemplate = async (id, data) => {
+  const response = await apiClient.patch(`/approval-templates/${id}`, data);
   return response.data;
 };
 

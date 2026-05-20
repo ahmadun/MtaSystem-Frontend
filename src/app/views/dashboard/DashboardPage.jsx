@@ -265,7 +265,7 @@ export default function DashboardPage() {
               Operational summary for checksheet transactions, monthly approvals, and repair follow-up.
             </Typography>
           </Box>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }}>
             <Button variant="outlined" startIcon={<FactCheckIcon />} onClick={() => navigate("/checksheets/submissions")}>
               Transactions
             </Button>

@@ -8,7 +8,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  MenuItem,
   Paper,
   Stack,
   Table,
@@ -20,9 +19,12 @@ import {
   TableRow,
   TableSortLabel,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography
 } from "@mui/material";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
+import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
 import { useNavigate } from "react-router-dom";
 import { usePendingApprovalRequests, useRespondApprovalRequest } from "app/hooks/useChecksheets";
 
@@ -123,15 +125,17 @@ export default function PendingApprovalsPage() {
       },
       {
         id: "mode",
-        header: "Mode",
+        header: () => <Box sx={{ textAlign: "center" }}>Mode</Box>,
         enableSorting: false,
         cell: ({ row }) => (
-          <Chip
-            size="small"
-            label={row.original.approvalMode === "all" ? "All Must Approve" : "Any One"}
-            color={row.original.approvalMode === "all" ? "secondary" : "primary"}
-            variant="outlined"
-          />
+          <Box sx={{ textAlign: "center" }}>
+            <Chip
+              size="small"
+              label={row.original.approvalMode === "all" ? "All Must Approve" : "Any One"}
+              color={row.original.approvalMode === "all" ? "secondary" : "primary"}
+              variant="outlined"
+            />
+          </Box>
         )
       },
       {
@@ -140,7 +144,7 @@ export default function PendingApprovalsPage() {
         header: () => <Box sx={{ textAlign: "right", pr: 1.5 }}>Actions</Box>,
         cell: ({ row }) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ pr: 1.5 }}>
-            <Button onClick={() => navigate(`/checksheets/submissions/${row.original.checksheetSubmissionId}`)}>Open</Button>
+            <Button onClick={() => navigate(`/checksheets/submissions/${row.original.checksheetSubmissionId}/monthly`)}>Open</Button>
             <Button variant="contained" onClick={() => setTarget(row.original)}>
               Respond
             </Button>
@@ -280,10 +284,32 @@ export default function PendingApprovalsPage() {
         <DialogTitle>Respond Approval</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={2}>
-            <TextField select label="Decision" value={decision} onChange={(event) => setDecision(event.target.value)}>
-              <MenuItem value="approved">Approve</MenuItem>
-              <MenuItem value="rejected">Reject</MenuItem>
-            </TextField>
+            <ToggleButtonGroup
+              exclusive
+              fullWidth
+              value={decision}
+              onChange={(_, value) => {
+                if (value) {
+                  setDecision(value);
+                }
+              }}
+              disabled={respondMutation.isPending}
+              sx={{
+                "& .MuiToggleButton-root": {
+                  py: 1.25,
+                  fontWeight: 700,
+                  textTransform: "none"
+                }
+              }}
+            >
+              <ToggleButton value="approved" color="success">
+                <CheckOutlinedIcon fontSize="small" sx={{ mr: 0.75 }} />
+                Approve
+              </ToggleButton>
+              <ToggleButton value="rejected" color="error">
+                Reject
+              </ToggleButton>
+            </ToggleButtonGroup>
             <TextField label="Comment" value={comment} onChange={(event) => setComment(event.target.value)} multiline minRows={3} />
           </Stack>
         </DialogContent>

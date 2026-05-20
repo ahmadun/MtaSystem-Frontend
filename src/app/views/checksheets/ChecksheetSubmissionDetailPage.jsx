@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
@@ -27,6 +28,7 @@ import {
   ButtonGroup
 } from "@mui/material";
 import CalendarMonthOutlinedIcon from "@mui/icons-material/CalendarMonthOutlined";
+import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
@@ -47,16 +49,34 @@ import {
   useDeleteRepairRecord,
   useCreateApprovalRequest,
   useCancelApprovalRequest,
+  useCancelRepairRecordApproval,
   useDeleteChecksheetSubmission,
   useUpdateChecksheetSubmission,
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
 const FIXED_OPTIONS = ["OK", "NG", "FIX"];
+const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
+}
+
+function getNextRepairApprovalLevel(record) {
+  if (!record) return "-";
+  if (!record.checkedByAssyUserId) return "ASSY";
+  if (!record.checkedByQaUserId) return "QA";
+  if (!record.checkedByCoordinatorUserId) return "MTA";
+  return "COMPLETED";
+}
+
+function getLastRepairApprovalLevel(record) {
+  if (!record) return "-";
+  if (record.checkedByCoordinatorUserId) return "MTA";
+  if (record.checkedByQaUserId) return "QA";
+  if (record.checkedByAssyUserId) return "ASSY";
+  return "-";
 }
 
 function getMachineEntryDetails(source, fallback = {}) {
@@ -215,7 +235,49 @@ function mapRecordTypeToUi(recordType) {
 }
 
 function normalizeInspectionEntryMode(value) {
-  return String(value || "").trim().toLowerCase() === "board" ? "board" : "date";
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "board") return "board";
+  if (normalized === "weekly") return "weekly";
+  return "date";
+}
+
+function getWeekOfMonth(dateValue) {
+  const day = Number(String(dateValue ?? "").slice(8, 10));
+  return day > 0 ? Math.ceil(day / 7) : 1;
+}
+
+function getWeekStartDateValue(dateValue) {
+  const normalizedDate = String(dateValue ?? "");
+  const monthValue = normalizedDate.slice(0, 7);
+  if (!monthValue) {
+    return "";
+  }
+
+  const week = getWeekOfMonth(normalizedDate);
+  return `${monthValue}-${String(((week - 1) * 7) + 1).padStart(2, "0")}`;
+}
+
+function getWeeklyEntryOptions(dateValue) {
+  const monthValue = String(dateValue ?? "").slice(0, 7);
+  if (!monthValue) {
+    return [];
+  }
+
+  const [year, month] = monthValue.split("-").map(Number);
+  if (!year || !month) {
+    return [];
+  }
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const weekCount = Math.ceil(daysInMonth / 7);
+
+  return Array.from({ length: weekCount }, (_, index) => {
+    const week = index + 1;
+    return {
+      value: `${monthValue}-${String(((week - 1) * 7) + 1).padStart(2, "0")}`,
+      label: `Week ${week}`
+    };
+  });
 }
 
 function getLatestRecordForMode(records, mode) {
@@ -243,6 +305,24 @@ function getRecordForModeAndDate(records, mode, inspectionDate) {
     .sort((left, right) => right.id - left.id)[0] ?? null;
 }
 
+function getRecordForModeAndWeek(records, mode, inspectionDate) {
+  if (!inspectionDate) {
+    return null;
+  }
+
+  const normalizedMode = normalizeChecksheetMode(mode);
+  const selectedMonth = String(inspectionDate).slice(0, 7);
+  const selectedWeek = getWeekOfMonth(inspectionDate);
+
+  return [...(records ?? [])]
+    .filter((record) =>
+      mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      String(record.inspectionDate ?? "").slice(0, 7) === selectedMonth &&
+      getWeekOfMonth(record.inspectionDate) === selectedWeek
+    )
+    .sort((left, right) => right.id - left.id)[0] ?? null;
+}
+
 function normalizeBoardCode(value) {
   return String(value ?? "").trim().toUpperCase();
 }
@@ -256,6 +336,56 @@ function sanitizeNumberInput(value) {
   const normalized = String(value ?? "").replace(/[^0-9.]/g, "");
   const [wholePart, ...decimalParts] = normalized.split(".");
   return decimalParts.length > 0 ? `${wholePart}.${decimalParts.join("")}` : wholePart;
+}
+
+function createEmptyJigNoCheckRow() {
+  return {
+    pointNo: "",
+    pointValue: ""
+  };
+}
+
+function parseJigNoCheckValue(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(value);
+    const rows = Array.isArray(parsedValue) ? parsedValue : parsedValue?.rows;
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    return rows.map((row) => ({
+      pointNo: sanitizeNumberInput(row?.pointNo),
+      pointValue: sanitizeNumberInput(row?.pointValue)
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function serializeJigNoCheckValue(rows) {
+  const cleanedRows = rows
+    .map((row) => ({
+      pointNo: sanitizeNumberInput(row.pointNo),
+      pointValue: sanitizeNumberInput(row.pointValue)
+    }))
+    .filter((row) => row.pointNo || row.pointValue);
+
+  return cleanedRows.length ? JSON.stringify(cleanedRows) : "";
+}
+
+function formatJigNoCheckValue(value) {
+  const rows = parseJigNoCheckValue(value);
+
+  if (!rows.length) {
+    return [];
+  }
+
+  return rows.map((row) => `Jig No. ${row.pointNo} : ${row.pointValue}`);
 }
 
 function getRecordBoardCode(record) {
@@ -402,6 +532,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const deleteSubmissionMutation = useDeleteChecksheetSubmission();
   const createRepairMutation = useCreateRepairRecord(submissionId);
   const approveRepairMutation = useApproveRepairRecord();
+  const cancelRepairApprovalMutation = useCancelRepairRecordApproval();
   const deleteInspectionMutation = useDeleteInspectionRecord(submissionId);
   const deleteRepairMutation = useDeleteRepairRecord(submissionId);
   const createApprovalMutation = useCreateApprovalRequest(submissionId);
@@ -410,6 +541,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const [approvalTemplateId, setApprovalTemplateId] = useState("");
   const [inspectionDate, setInspectionDate] = useState("");
   const [boardCode, setBoardCode] = useState("");
+  const [selectedInspectionMachineCodes, setSelectedInspectionMachineCodes] = useState([]);
   const [inspectionShift, setInspectionShift] = useState("1");
   const [inspectionNote, setInspectionNote] = useState("");
   const [entryValues, setEntryValues] = useState({});
@@ -419,7 +551,11 @@ export default function ChecksheetSubmissionDetailPage() {
   );
   const [repairFormsState, setRepairFormsState] = useState({});
   const [activeRepairDialogKey, setActiveRepairDialogKey] = useState("");
+  const [activeJigNoCheckItemId, setActiveJigNoCheckItemId] = useState(null);
+  const [jigNoCheckRows, setJigNoCheckRows] = useState([createEmptyJigNoCheckRow()]);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [repairApprovalTarget, setRepairApprovalTarget] = useState(null);
+  const [repairApprovalCancelTarget, setRepairApprovalCancelTarget] = useState(null);
   const [cancelSubmissionOpen, setCancelSubmissionOpen] = useState(false);
 
   const inspectionRecords = submission?.inspectionRecords ?? [];
@@ -435,6 +571,10 @@ export default function ChecksheetSubmissionDetailPage() {
     () => {
       if (inspectionEntryMode === "board") {
         return getRecordForModeAndBoardCode(inspectionRecords, checksheetMode, boardCode);
+      }
+
+      if (inspectionEntryMode === "weekly") {
+        return getRecordForModeAndWeek(inspectionRecords, checksheetMode, inspectionDate);
       }
 
       return getRecordForModeAndDate(inspectionRecords, checksheetMode, inspectionDate);
@@ -499,7 +639,15 @@ export default function ChecksheetSubmissionDetailPage() {
   const multiProductNo = submission?.multiProductNo || currentMachine?.multiProductNo || "-";
   const processName = submission?.processName || currentMachine?.processName || "-";
   const checksheetName = submission?.checksheetName || currentMachine?.checksheetName || "-";
+  const availableInspectionMachineCodes = useMemo(
+    () => (submission?.machineCodes?.length ? submission.machineCodes : currentMachine?.machineCodes ?? []),
+    [currentMachine?.machineCodes, submission?.machineCodes]
+  );
   const machineEntryDetails = getMachineEntryDetails(submission, currentMachine);
+  const weeklyEntryOptions = useMemo(
+    () => getWeeklyEntryOptions(inspectionDate || latestInspectionRecord?.inspectionDate || submission?.inspectionDate),
+    [inspectionDate, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]
+  );
   const machineModes = useMemo(() => {
     const modes = currentMachine?.modes?.length ? currentMachine.modes : [submission?.checksheetMode ?? "daily"];
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
@@ -556,12 +704,22 @@ export default function ChecksheetSubmissionDetailPage() {
     }
 
     setBoardCode("");
+    if (inspectionEntryMode === "weekly") {
+      setInspectionDate(getWeekStartDateValue(latestInspectionRecord?.inspectionDate ?? submission?.inspectionDate ?? ""));
+      return;
+    }
+
     setInspectionDate(latestInspectionRecord?.inspectionDate ?? submission?.inspectionDate ?? "");
   }, [checksheetMode, inspectionEntryMode, latestInspectionRecord?.id, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]);
 
   useEffect(() => {
     setInspectionShift(selectedInspectionRecord?.shift ?? submission?.shift ?? "1");
     setInspectionNote(selectedInspectionRecord?.note ?? "");
+    setSelectedInspectionMachineCodes(
+      selectedInspectionRecord?.machineCodes?.length
+        ? selectedInspectionRecord.machineCodes
+        : availableInspectionMachineCodes
+    );
     setEntryValues(
       createEntryValuesFromRecord(
         templateItems,
@@ -573,10 +731,12 @@ export default function ChecksheetSubmissionDetailPage() {
     selectedInspectionRecord?.inspectionDate,
     selectedInspectionRecord?.shift,
     selectedInspectionRecord?.note,
+    selectedInspectionRecord?.machineCodes,
     selectedInspectionRecord?.updatedAt,
     inspectionDate,
     boardCode,
     inspectionValueSignature,
+    availableInspectionMachineCodes,
     submission?.shift,
     templateItemIds
   ]);
@@ -633,14 +793,64 @@ export default function ChecksheetSubmissionDetailPage() {
     return recordValueMap.get(itemId)?.[field] ?? "";
   };
 
+  const handleOpenJigNoCheckDialog = (itemId) => {
+    const rows = parseJigNoCheckValue(getEntryValue(itemId, "resultValue"));
+    setActiveJigNoCheckItemId(itemId);
+    setJigNoCheckRows(rows.length ? rows : [createEmptyJigNoCheckRow()]);
+  };
+
+  const handleCloseJigNoCheckDialog = () => {
+    setActiveJigNoCheckItemId(null);
+    setJigNoCheckRows([createEmptyJigNoCheckRow()]);
+  };
+
+  const updateJigNoCheckRow = (index, patch) => {
+    setJigNoCheckRows((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row))
+    );
+  };
+
+  const addJigNoCheckRow = () => {
+    setJigNoCheckRows((current) => [...current, createEmptyJigNoCheckRow()]);
+  };
+
+  const removeJigNoCheckRow = (index) => {
+    setJigNoCheckRows((current) => {
+      const nextRows = current.filter((_, rowIndex) => rowIndex !== index);
+      return nextRows.length ? nextRows : [createEmptyJigNoCheckRow()];
+    });
+  };
+
+  const handleSaveJigNoCheckValue = () => {
+    if (!activeJigNoCheckItemId) {
+      return;
+    }
+
+    handleInspectionValueChange(activeJigNoCheckItemId, {
+      resultValue: serializeJigNoCheckValue(jigNoCheckRows)
+    });
+    handleCloseJigNoCheckDialog();
+  };
+
+  const toggleInspectionMachineCode = (machineCode) => {
+    setSelectedInspectionMachineCodes((current) =>
+      current.includes(machineCode)
+        ? current.filter((item) => item !== machineCode)
+        : [...current, machineCode]
+    );
+  };
+
   const handleSaveInspectionRecord = () => {
     const resolvedInspectionDate = inspectionEntryMode === "board"
       ? selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null
-      : inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null;
+      : inspectionEntryMode === "weekly"
+        ? inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null
+        : inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null;
     const payload = {
       recordType: checksheetMode,
       inspectionDate: resolvedInspectionDate,
       boardCode: inspectionEntryMode === "board" ? normalizeBoardCode(boardCode) || null : null,
+      machineCodes: inspectionEntryMode === "board" ? selectedInspectionMachineCodes : [],
       shift: inspectionShift || null,
       note: buildInspectionNote(inspectionNote),
       values: templateItems
@@ -902,22 +1112,67 @@ export default function ChecksheetSubmissionDetailPage() {
               <Box>
                 <Typography variant="h6">Inspection Entry</Typography>
               </Box>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ minWidth: { md: 320 } }}>
+              <Stack
+                direction={{ xs: "column", md: "row" }}
+                spacing={2}
+                sx={
+                  inspectionEntryMode === "board"
+                    ? { width: { xs: "100%", md: "auto" }, maxWidth: "100%", minWidth: 0 }
+                    : { width: { xs: "100%", md: 320 }, minWidth: 0 }
+                }
+              >
                 {inspectionEntryMode === "board" ? (
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ md: "flex-start" }} sx={{ minWidth: 0 }}>
+                    {availableInspectionMachineCodes.length > 0 && (
+                      <Box sx={{ maxWidth: { xs: "100%", md: 360 }, overflow: "hidden" }}>
+                        <Stack direction="row" spacing={0.5} flexWrap="nowrap" useFlexGap sx={{ whiteSpace: "nowrap" }}>
+                          {availableInspectionMachineCodes.map((machineCode) => (
+                            <FormControlLabel
+                              key={machineCode}
+                              control={
+                                <Checkbox
+                                  size="small"
+                                  checked={selectedInspectionMachineCodes.includes(machineCode)}
+                                  onChange={() => toggleInspectionMachineCode(machineCode)}
+                                />
+                              }
+                              label={machineCode}
+                              sx={{ mr: 0, flexShrink: 0, "& .MuiFormControlLabel-label": { fontSize: 13 } }}
+                            />
+                          ))}
+                        </Stack>
+                      </Box>
+                    )}
+                    <TextField
+                      label="Board Code / Number"
+                      value={boardCode}
+                      onChange={(event) => setBoardCode(normalizeBoardCode(event.target.value))}
+                      placeholder="A1"
+                      size="small"
+                      sx={{ width: { xs: "100%", md: 180 }, flexShrink: 0 }}
+                    />
+                  </Stack>
+                ) : inspectionEntryMode === "weekly" ? (
                   <TextField
-                    label="Board Code / Number"
-                    value={boardCode}
-                    onChange={(event) => setBoardCode(normalizeBoardCode(event.target.value))}
-                    placeholder="A1"
+                    select
+                    label="Inspection Week"
+                    value={inspectionDate}
+                    onChange={(event) => setInspectionDate(event.target.value)}
                     size="small"
                     fullWidth
-                  />
+                    sx={{ flex: 1, minWidth: 0 }}
+                  >
+                    {weeklyEntryOptions.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+                    ))}
+                  </TextField>
                 ) : (
                   <DatePicker
                     label="Inspection Date"
                     value={dateValueToDate(inspectionDate)}
                     onChange={(value) => setInspectionDate(dateToDateValue(value))}
                     format="yyyy-MM-dd"
+                    sx={{ flex: 1, minWidth: 0 }}
                     slotProps={{
                       textField: {
                         size: "small",
@@ -933,6 +1188,7 @@ export default function ChecksheetSubmissionDetailPage() {
                   onChange={(event) => setInspectionShift(event.target.value)}
                   size="small"
                   fullWidth
+                  sx={{ width: { xs: "100%", md: 96 }, flexShrink: 0 }}
                 >
                   {["1", "2", "3"].map((shift) => (
                     <MenuItem key={shift} value={shift}>Shift {shift}</MenuItem>
@@ -1061,6 +1317,37 @@ export default function ChecksheetSubmissionDetailPage() {
                               disabled={!isDraft || isInspectionMutationPending}
                               inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
                             />
+                          ) : (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE ? (
+                            (() => {
+                              const jigNoCheckLines = formatJigNoCheckValue(getEntryValue(item.id, "resultValue"));
+                              return (
+                                <Button
+                                  variant={jigNoCheckLines.length ? "contained" : "outlined"}
+                                  size="small"
+                                  fullWidth
+                                  disabled={!isDraft || isInspectionMutationPending}
+                                  onClick={() => handleOpenJigNoCheckDialog(item.id)}
+                                  sx={{
+                                    justifyContent: "flex-start",
+                                    textAlign: "left",
+                                    textTransform: "none",
+                                    whiteSpace: "normal"
+                                  }}
+                                >
+                                  {jigNoCheckLines.length ? (
+                                    <Stack spacing={0.25} sx={{ alignItems: "flex-start" }}>
+                                      {jigNoCheckLines.map((line, lineIndex) => (
+                                        <Typography key={`${item.id}-jig-no-check-${lineIndex}`} variant="caption" component="span">
+                                          {line}
+                                        </Typography>
+                                      ))}
+                                    </Stack>
+                                  ) : (
+                                    "Input Point"
+                                  )}
+                                </Button>
+                              );
+                            })()
                           ) : (
                             <TextField
                               value={getEntryValue(item.id, "resultValue")}
@@ -1120,7 +1407,11 @@ export default function ChecksheetSubmissionDetailPage() {
                 <Typography variant="body2">
                   {inspectionEntryMode === "board" ? (
                     <>
-                      <strong>Board Code:</strong> {getRecordBoardCode(selectedInspectionRecord) || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
+                      <strong>Board Code:</strong> {getRecordBoardCode(selectedInspectionRecord) || "-"} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"} | <strong>Machine Record:</strong> {selectedInspectionRecord.machineCodes?.join(", ") || "-"}
+                    </>
+                  ) : inspectionEntryMode === "weekly" ? (
+                    <>
+                      <strong>Week:</strong> Week {getWeekOfMonth(selectedInspectionRecord.inspectionDate)} | <strong>Shift:</strong> {currentDaySummary?.shift || selectedInspectionRecord.shift || "-"}
                     </>
                   ) : (
                     <>
@@ -1363,11 +1654,21 @@ export default function ChecksheetSubmissionDetailPage() {
                                 </Stack>
                               </Box>
                               <Stack direction="row" spacing={1} alignItems="center">
+                                {(record.checkedByAssyUserId || record.checkedByQaUserId || record.checkedByCoordinatorUserId) && (
+                                  <Button
+                                    color="warning"
+                                    variant="outlined"
+                                    disabled={cancelRepairApprovalMutation.isPending}
+                                    onClick={() => setRepairApprovalCancelTarget({ ...record, repairFormTitle: repairFormDefinition.title })}
+                                  >
+                                    Cancel Approval
+                                  </Button>
+                                )}
                                 {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
                                   <Button
                                     variant="outlined"
                                     disabled={approveRepairMutation.isPending}
-                                    onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                                    onClick={() => setRepairApprovalTarget({ ...record, repairFormTitle: repairFormDefinition.title })}
                                   >
                                     Approve Next Level
                                   </Button>
@@ -1430,6 +1731,155 @@ export default function ChecksheetSubmissionDetailPage() {
             });
           }}
         />
+        <Dialog
+          open={!!repairApprovalTarget}
+          onClose={approveRepairMutation.isPending ? undefined : () => setRepairApprovalTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Approve Repair Record</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <Typography>
+                Approve level <strong>{getNextRepairApprovalLevel(repairApprovalTarget)}</strong> for this repair record?
+              </Typography>
+              {repairApprovalTarget?.repairFormTitle ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalTarget.repairFormTitle}
+                </Typography>
+              ) : null}
+              <Typography variant="body2" color="text.secondary">
+                {repairApprovalTarget?.damageDescription}
+              </Typography>
+              {repairApprovalTarget?.repairDescription ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalTarget.repairDescription}
+                </Typography>
+              ) : null}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRepairApprovalTarget(null)} disabled={approveRepairMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={approveRepairMutation.isPending || !repairApprovalTarget}
+              onClick={() => {
+                if (!repairApprovalTarget) return;
+                approveRepairMutation.mutate(
+                  { submissionId, recordId: repairApprovalTarget.id },
+                  { onSuccess: () => setRepairApprovalTarget(null) }
+                );
+              }}
+            >
+              {approveRepairMutation.isPending ? "Saving..." : "Approve"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!repairApprovalCancelTarget}
+          onClose={cancelRepairApprovalMutation.isPending ? undefined : () => setRepairApprovalCancelTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Cancel Repair Approval</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <Alert severity="warning">
+                This will cancel only the latest completed repair approval level.
+              </Alert>
+              <Typography>
+                Cancel level <strong>{getLastRepairApprovalLevel(repairApprovalCancelTarget)}</strong> for this repair record?
+              </Typography>
+              {repairApprovalCancelTarget?.repairFormTitle ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalCancelTarget.repairFormTitle}
+                </Typography>
+              ) : null}
+              <Typography variant="body2" color="text.secondary">
+                {repairApprovalCancelTarget?.damageDescription}
+              </Typography>
+              {repairApprovalCancelTarget?.repairDescription ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalCancelTarget.repairDescription}
+                </Typography>
+              ) : null}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRepairApprovalCancelTarget(null)} disabled={cancelRepairApprovalMutation.isPending}>
+              Keep Approval
+            </Button>
+            <Button
+              color="warning"
+              variant="contained"
+              disabled={cancelRepairApprovalMutation.isPending || !repairApprovalCancelTarget}
+              onClick={() => {
+                if (!repairApprovalCancelTarget) return;
+                cancelRepairApprovalMutation.mutate(
+                  { submissionId, recordId: repairApprovalCancelTarget.id },
+                  { onSuccess: () => setRepairApprovalCancelTarget(null) }
+                );
+              }}
+            >
+              {cancelRepairApprovalMutation.isPending ? "Cancelling..." : "Cancel Approval"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog open={!!activeJigNoCheckItemId} onClose={handleCloseJigNoCheckDialog} fullWidth maxWidth="sm">
+          <DialogTitle>Input Jig No Check</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="subtitle2">Point Rows</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addJigNoCheckRow}>
+                  Add Row
+                </Button>
+              </Stack>
+              {jigNoCheckRows.map((row, index) => (
+                <Stack key={index} direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "flex-start" }}>
+                  <TextField
+                    label="Point No"
+                    type="number"
+                    value={row.pointNo}
+                    onChange={(event) => updateJigNoCheckRow(index, { pointNo: sanitizeNumberInput(event.target.value) })}
+                    size="small"
+                    fullWidth
+                    inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                  />
+                  <TextField
+                    label="Point Value"
+                    type="number"
+                    value={row.pointValue}
+                    onChange={(event) => updateJigNoCheckRow(index, { pointValue: sanitizeNumberInput(event.target.value) })}
+                    size="small"
+                    fullWidth
+                    inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                  />
+                  <IconButton
+                    color="error"
+                    onClick={() => removeJigNoCheckRow(index)}
+                    disabled={jigNoCheckRows.length === 1}
+                    sx={{ alignSelf: { xs: "flex-end", sm: "flex-start" } }}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </Stack>
+              ))}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseJigNoCheckDialog}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSaveJigNoCheckValue}
+              disabled={jigNoCheckRows.some((row) => (row.pointNo && !row.pointValue) || (!row.pointNo && row.pointValue))}
+            >
+              Save
+            </Button>
+          </DialogActions>
+        </Dialog>
         <Dialog open={!!activeRepairFormDefinition} onClose={handleCloseRepairDialog} fullWidth maxWidth="md">
           <DialogTitle>
             {activeRepairFormDefinition

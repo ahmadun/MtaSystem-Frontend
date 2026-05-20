@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -18,6 +19,7 @@ import {
   Paper,
   Skeleton,
   Stack,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -32,9 +34,17 @@ import { alpha } from "@mui/material/styles";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
 import useAuth from "app/hooks/useAuth";
-import { useCreateApprovalTemplate, useApprovalTemplates } from "app/hooks/useChecksheets";
+import {
+  useApprovalTemplate,
+  useApprovalTemplates,
+  useCreateApprovalTemplate,
+  usePatchApprovalTemplate,
+  useUpdateApprovalTemplate
+} from "app/hooks/useChecksheets";
 import { useUserOptions } from "app/hooks/useUsers";
 
 const DEFAULT_STEP = { stepName: "", stepOrder: 1, approvalMode: "any_one", approverUserIds: [] };
@@ -44,6 +54,26 @@ function createInitialForm() {
     name: "",
     description: "",
     steps: [{ ...DEFAULT_STEP }]
+  };
+}
+
+function buildFormFromTemplate(template) {
+  if (!template) return createInitialForm();
+
+  const steps = (template.steps ?? [])
+    .slice()
+    .sort((a, b) => a.stepOrder - b.stepOrder)
+    .map((step, index) => ({
+      stepName: step.stepName ?? "",
+      stepOrder: index + 1,
+      approvalMode: step.approvalMode ?? "any_one",
+      approverUserIds: (step.approvers ?? []).map((approver) => approver.userId)
+    }));
+
+  return {
+    name: template.name ?? "",
+    description: template.description ?? "",
+    steps: steps.length > 0 ? steps : [{ ...DEFAULT_STEP }]
   };
 }
 
@@ -67,16 +97,23 @@ function getUserOptionLabel(option) {
   return option.username || option.label || "";
 }
 
-function CreateApprovalTemplateDialog({ open, onClose }) {
+function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClose }) {
+  const isEdit = mode === "edit";
+  const detailQuery = useApprovalTemplate(templateId, { enabled: open && isEdit && !!templateId });
   const createMutation = useCreateApprovalTemplate();
+  const updateMutation = useUpdateApprovalTemplate(templateId);
+  const mutation = isEdit ? updateMutation : createMutation;
   const { data: userOptions = [], isLoading: isUsersLoading } = useUserOptions({ Top: 200 }, { enabled: open });
   const [form, setForm] = useState(createInitialForm);
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    if (isEdit) {
+      setForm(buildFormFromTemplate(detailQuery.data));
+    } else {
       setForm(createInitialForm());
     }
-  }, [open]);
+  }, [detailQuery.data, isEdit, open]);
 
   const stepCount = form.steps.length;
   const totalApprovers = useMemo(
@@ -113,7 +150,7 @@ function CreateApprovalTemplateDialog({ open, onClose }) {
   };
 
   const handleSubmit = async () => {
-    await createMutation.mutateAsync({
+    await mutation.mutateAsync({
       name: form.name.trim(),
       description: form.description.trim() || null,
       steps: form.steps.map((step, index) => ({
@@ -127,15 +164,22 @@ function CreateApprovalTemplateDialog({ open, onClose }) {
   };
 
   return (
-    <Dialog open={open} onClose={createMutation.isPending ? undefined : onClose} fullWidth maxWidth="lg">
-      <DialogTitle>Create Approval Template</DialogTitle>
+    <Dialog open={open} onClose={mutation.isPending ? undefined : onClose} fullWidth maxWidth="lg">
+      <DialogTitle>{isEdit ? "Edit Approval Workflow" : "Create Approval Template"}</DialogTitle>
       <DialogContent dividers sx={{ p: 0 }}>
+        {isEdit && detailQuery.isLoading ? (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 3 }}>
+            <CircularProgress size={20} />
+            <Typography color="text.secondary">Loading template...</Typography>
+          </Stack>
+        ) : (
         <Stack spacing={0}>
           <Box sx={{ px: 3, py: 2.5, bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04) }}>
             <Stack spacing={1}>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={`${stepCount} step${stepCount === 1 ? "" : "s"}`} />
                 <Chip size="small" label={`${totalApprovers} approver assignment${totalApprovers === 1 ? "" : "s"}`} variant="outlined" />
+                {isEdit ? <Chip size="small" color="warning" variant="outlined" label="Only unused templates can replace workflow steps" /> : null}
               </Stack>
             </Stack>
           </Box>
@@ -261,13 +305,150 @@ function CreateApprovalTemplateDialog({ open, onClose }) {
             </Paper>
           </Stack>
         </Stack>
+        )}
       </DialogContent>
       <DialogActions sx={{ px: 3, py: 2 }}>
-        <Button onClick={onClose} disabled={createMutation.isPending}>
+        <Button onClick={onClose} disabled={mutation.isPending}>
           Cancel
         </Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={createMutation.isPending || !canSubmit}>
-          {createMutation.isPending ? "Saving..." : "Create Template"}
+        <Button variant="contained" onClick={handleSubmit} disabled={mutation.isPending || !canSubmit || (isEdit && detailQuery.isLoading)}>
+          {mutation.isPending ? "Saving..." : isEdit ? "Save Workflow" : "Create Template"}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+function ApprovalTemplateDetailDialog({ open, templateId, canManage, onClose, onEditWorkflow }) {
+  const detailQuery = useApprovalTemplate(templateId, { enabled: open && !!templateId });
+  const patchMutation = usePatchApprovalTemplate(templateId);
+  const template = detailQuery.data;
+  const [metadataForm, setMetadataForm] = useState({ name: "", description: "", isActive: true });
+
+  useEffect(() => {
+    if (!template) return;
+    setMetadataForm({
+      name: template.name ?? "",
+      description: template.description ?? "",
+      isActive: template.isActive ?? true
+    });
+  }, [template]);
+
+  const canSaveMetadata = metadataForm.name.trim().length > 0;
+
+  const handleSaveMetadata = async () => {
+    await patchMutation.mutateAsync({
+      name: metadataForm.name.trim(),
+      description: metadataForm.description.trim() || null,
+      isActive: metadataForm.isActive
+    });
+  };
+
+  return (
+    <Dialog open={open} onClose={patchMutation.isPending ? undefined : onClose} fullWidth maxWidth="md">
+      <DialogTitle>Approval Template Detail</DialogTitle>
+      <DialogContent dividers>
+        {detailQuery.isLoading ? (
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <CircularProgress size={20} />
+            <Typography color="text.secondary">Loading template...</Typography>
+          </Stack>
+        ) : detailQuery.isError ? (
+          <Alert severity="error">{detailQuery.error.message}</Alert>
+        ) : template ? (
+          <Stack spacing={3}>
+            <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5}>
+              <Box>
+                <Typography variant="h6" fontWeight={700}>
+                  {template.name}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                  {template.description || "No description provided."}
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={template.isActive ? "Active" : "Inactive"} color={template.isActive ? "success" : "default"} />
+                <Chip size="small" variant="outlined" label={`${template.steps?.length ?? 0} step${template.steps?.length === 1 ? "" : "s"}`} />
+                <Chip size="small" variant="outlined" label={`${template.requestCount ?? 0} request${template.requestCount === 1 ? "" : "s"}`} />
+              </Stack>
+            </Stack>
+
+            <Alert severity={template.canReplaceWorkflow ? "info" : "warning"} sx={{ borderRadius: 2 }}>
+              {template.canReplaceWorkflow
+                ? "This template has not been used yet. The approval workflow can still be replaced."
+                : "This template has already been used. Existing approval requests keep their own snapshot, so only the name, description, and active status should be edited. Create a new template for approver or step changes."}
+            </Alert>
+
+            {canManage ? (
+              <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
+                <Stack spacing={2}>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Editable Details
+                  </Typography>
+                  <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                    <TextField
+                      label="Template Name"
+                      value={metadataForm.name}
+                      onChange={(event) => setMetadataForm((current) => ({ ...current, name: event.target.value }))}
+                      fullWidth
+                    />
+                    <TextField
+                      label="Description"
+                      value={metadataForm.description}
+                      onChange={(event) => setMetadataForm((current) => ({ ...current, description: event.target.value }))}
+                      multiline
+                      minRows={2}
+                      fullWidth
+                    />
+                  </Stack>
+                  <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="center">
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Switch
+                        checked={metadataForm.isActive}
+                        onChange={(event) => setMetadataForm((current) => ({ ...current, isActive: event.target.checked }))}
+                      />
+                      <Typography variant="body2">{metadataForm.isActive ? "Active for new requests" : "Inactive for new requests"}</Typography>
+                    </Stack>
+                    <Button variant="contained" onClick={handleSaveMetadata} disabled={patchMutation.isPending || !canSaveMetadata}>
+                      {patchMutation.isPending ? "Saving..." : "Save Details"}
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            ) : null}
+
+            <Stack spacing={1.5}>
+              <Typography variant="subtitle1" fontWeight={700}>
+                Approval Workflow
+              </Typography>
+              {(template.steps ?? []).map((step) => (
+                <Paper key={step.id} variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
+                  <Stack spacing={1.5}>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                      <Chip size="small" color="primary" label={`Step ${step.stepOrder}`} />
+                      <Typography fontWeight={700}>{step.stepName}</Typography>
+                      <Chip size="small" variant="outlined" label={step.approvalMode === "all" ? "All must approve" : "Any one can approve"} />
+                    </Stack>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {(step.approvers ?? []).map((approver) => (
+                        <Chip key={approver.userId} size="small" label={approver.fullName || approver.username || `User ${approver.userId}`} />
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
+          </Stack>
+        ) : null}
+      </DialogContent>
+      <DialogActions>
+        {canManage && template?.canReplaceWorkflow ? (
+          <Button startIcon={<EditOutlinedIcon />} onClick={() => onEditWorkflow(template.id)}>
+            Edit Workflow
+          </Button>
+        ) : null}
+        <Button onClick={onClose} disabled={patchMutation.isPending}>
+          Close
         </Button>
       </DialogActions>
     </Dialog>
@@ -277,7 +458,8 @@ function CreateApprovalTemplateDialog({ open, onClose }) {
 export default function ApprovalTemplatesPage() {
   const { user } = useAuth();
   const canManage = ["SuperAdmin", "Admin"].includes(user?.role);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editorState, setEditorState] = useState({ open: false, mode: "create", templateId: null });
+  const [detailTemplateId, setDetailTemplateId] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchInput, setSearchInput] = useState("");
@@ -329,21 +511,47 @@ export default function ApprovalTemplatesPage() {
       {
         id: "flow",
         header: "Flow",
-        cell: ({ row }) => (
-          <Chip
-            size="small"
-            variant="outlined"
-            label={`${row.original.stepCount ?? 0} step${row.original.stepCount === 1 ? "" : "s"}`}
-          />
-        )
+        cell: ({ row }) => {
+          const requestCount = row.original.requestCount ?? 0;
+
+          return (
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`${row.original.stepCount ?? 0} step${row.original.stepCount === 1 ? "" : "s"}`}
+              />
+              <Chip size="small" variant="outlined" label={requestCount > 0 ? `${requestCount} used` : "Unused"} />
+            </Stack>
+          );
+        }
       },
       {
         accessorKey: "updatedAt",
         header: () => <Box sx={{ textAlign: "right", pr: 1 }}>Updated</Box>,
         cell: ({ row }) => <Box sx={{ textAlign: "right", whiteSpace: "nowrap", pr: 1 }}>{formatDateTime(row.original.updatedAt)}</Box>
+      },
+      {
+        id: "actions",
+        header: () => <Box sx={{ textAlign: "right" }}>Actions</Box>,
+        cell: ({ row }) => (
+          <Stack direction="row" spacing={0.75} justifyContent="flex-end">
+            <IconButton size="small" onClick={() => setDetailTemplateId(row.original.id)}>
+              <VisibilityOutlinedIcon fontSize="small" />
+            </IconButton>
+            {canManage && row.original.canReplaceWorkflow ? (
+              <IconButton
+                size="small"
+                onClick={() => setEditorState({ open: true, mode: "edit", templateId: row.original.id })}
+              >
+                <EditOutlinedIcon fontSize="small" />
+              </IconButton>
+            ) : null}
+          </Stack>
+        )
       }
     ],
-    []
+    [canManage]
   );
 
   const table = useReactTable({
@@ -380,7 +588,7 @@ export default function ApprovalTemplatesPage() {
           </Box>
           <Stack direction="row" spacing={1.25} alignItems="center" flexWrap="wrap" useFlexGap>
             {canManage && (
-              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={() => setEditorState({ open: true, mode: "create", templateId: null })}>
                 New Approval Template
               </Button>
             )}
@@ -439,7 +647,7 @@ export default function ApprovalTemplatesPage() {
                     : "Create your first template to standardize who approves checksheet submissions and in what order they respond."}
                 </Typography>
                 {canManage ? (
-                  <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />} onClick={() => setDialogOpen(true)}>
+                  <Button sx={{ mt: 2 }} variant="contained" startIcon={<AddIcon />} onClick={() => setEditorState({ open: true, mode: "create", templateId: null })}>
                     {globalFilter ? "Create Template" : "Create First Template"}
                   </Button>
                 ) : null}
@@ -513,7 +721,24 @@ export default function ApprovalTemplatesPage() {
         </Box>
       </Stack>
 
-      {canManage ? <CreateApprovalTemplateDialog open={dialogOpen} onClose={() => setDialogOpen(false)} /> : null}
+      {canManage ? (
+        <ApprovalTemplateEditorDialog
+          open={editorState.open}
+          mode={editorState.mode}
+          templateId={editorState.templateId}
+          onClose={() => setEditorState({ open: false, mode: "create", templateId: null })}
+        />
+      ) : null}
+      <ApprovalTemplateDetailDialog
+        open={!!detailTemplateId}
+        templateId={detailTemplateId}
+        canManage={canManage}
+        onClose={() => setDetailTemplateId(null)}
+        onEditWorkflow={(templateId) => {
+          setDetailTemplateId(null);
+          setEditorState({ open: true, mode: "edit", templateId });
+        }}
+      />
     </Box>
   );
 }

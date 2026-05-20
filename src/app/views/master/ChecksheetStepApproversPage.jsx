@@ -204,7 +204,7 @@ export default function ChecksheetStepApproversPage() {
   return (
     <Box sx={{ p: 3 }}>
       <Stack spacing={3}>
-        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+        <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "flex-start" }} spacing={2}>
           <Box>
             <Typography variant="h5" fontWeight={700}>Checksheet Approver Master</Typography>
             <Typography variant="body2" color="text.secondary">

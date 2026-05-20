@@ -22,9 +22,11 @@ import {
   TableRow,
   TextField,
   ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography
 } from "@mui/material";
+import AddIcon from "@mui/icons-material/Add";
 import ArrowBackOutlinedIcon from "@mui/icons-material/ArrowBackOutlined";
 import CheckOutlinedIcon from "@mui/icons-material/CheckOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -36,21 +38,40 @@ import useAuth from "app/hooks/useAuth";
 import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
+  useCancelRepairRecordApproval,
   useChecksheetSubmissionMonthlyView,
   useCreateInspectionRecord,
   useCreateRepairRecord,
   useDeleteInspectionRecord,
   useDeleteRepairRecord,
   useExportChecksheetSubmissionMonthlyView,
+  useRespondApprovalRequest,
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
 const FIXED_OPTIONS = ["OK", "NG", "FIX"];
+const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const MONTH_DAY_COLUMN_WIDTH = 64;
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
+}
+
+function getNextRepairApprovalLevel(record) {
+  if (!record) return "-";
+  if (!record.checkedByAssyUserId) return "ASSY";
+  if (!record.checkedByQaUserId) return "QA";
+  if (!record.checkedByCoordinatorUserId) return "MTA";
+  return "COMPLETED";
+}
+
+function getLastRepairApprovalLevel(record) {
+  if (!record) return "-";
+  if (record.checkedByCoordinatorUserId) return "MTA";
+  if (record.checkedByQaUserId) return "QA";
+  if (record.checkedByAssyUserId) return "ASSY";
+  return "-";
 }
 
 function getMachineEntryDetails(source) {
@@ -158,11 +179,21 @@ function getDateStringForEntry(entry, daySummary, monthValue, fallbackDate) {
     return `${monthValue}-${String(day).padStart(2, "0")}`;
   }
 
+  const week = Number(String(entry?.key ?? "").replace("week:", ""));
+  if (monthValue && week > 0) {
+    return `${monthValue}-${String(((week - 1) * 7) + 1).padStart(2, "0")}`;
+  }
+
   return fallbackDate ?? `${monthValue}-01`;
 }
 
 function getInspectionDateForColumn(entry, daySummary) {
   return daySummary?.inspectionDate ?? entry?.inspectionDate ?? null;
+}
+
+function getMachineCodesForColumn(entry, daySummary) {
+  const machineCodes = daySummary?.machineCodes?.length ? daySummary.machineCodes : entry?.machineCodes ?? [];
+  return machineCodes.length ? machineCodes.join(", ") : "-";
 }
 
 function createDefaultEntryValues(items) {
@@ -177,7 +208,10 @@ function createDefaultEntryValues(items) {
 }
 
 function normalizeInspectionEntryMode(value) {
-  return String(value || "").trim().toLowerCase() === "board" ? "board" : "date";
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "board") return "board";
+  if (normalized === "weekly") return "weekly";
+  return "date";
 }
 
 function normalizeBoardCode(value) {
@@ -193,6 +227,52 @@ function sanitizeNumberInput(value) {
   const normalized = String(value ?? "").replace(/[^0-9.]/g, "");
   const [wholePart, ...decimalParts] = normalized.split(".");
   return decimalParts.length > 0 ? `${wholePart}.${decimalParts.join("")}` : wholePart;
+}
+
+function createEmptyJigNoCheckRow() {
+  return {
+    pointNo: "",
+    pointValue: ""
+  };
+}
+
+function parseJigNoCheckValue(value) {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    const parsedValue = JSON.parse(value);
+    const rows = Array.isArray(parsedValue) ? parsedValue : parsedValue?.rows;
+
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+
+    return rows.map((row) => ({
+      pointNo: sanitizeNumberInput(row?.pointNo),
+      pointValue: sanitizeNumberInput(row?.pointValue)
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function serializeJigNoCheckValue(rows) {
+  const cleanedRows = rows
+    .map((row) => ({
+      pointNo: sanitizeNumberInput(row.pointNo),
+      pointValue: sanitizeNumberInput(row.pointValue)
+    }))
+    .filter((row) => row.pointNo || row.pointValue);
+
+  return cleanedRows.length ? JSON.stringify(cleanedRows) : "";
+}
+
+function formatJigNoCheckValue(value) {
+  const rows = parseJigNoCheckValue(value);
+
+  return rows.map((row) => `Jig No. ${row.pointNo} : ${row.pointValue}`);
 }
 
 function getBoardCodeFromEntry(entry) {
@@ -214,6 +294,10 @@ function getEntryColumnKey(entry, inspectionEntryMode = "date") {
   }
 
   const day = Number(entry?.day);
+  if (inspectionEntryMode === "weekly") {
+    return day ? `week:${day}` : "";
+  }
+
   return day ? `day:${day}` : "";
 }
 
@@ -226,6 +310,10 @@ function getEntryColumnLabel(entry, inspectionEntryMode = "date") {
   }
 
   const day = Number(entry?.day);
+  if (inspectionEntryMode === "weekly") {
+    return day ? `Week ${day}` : "-";
+  }
+
   return day ? String(day) : "-";
 }
 
@@ -274,7 +362,7 @@ function getEntryColumnData(entry, inspectionEntryMode) {
 }
 
 function buildEntryColumns(view, inspectionEntryMode, filledOnly = false) {
-  if (inspectionEntryMode !== "board") {
+  if (inspectionEntryMode === "date") {
     return buildDateColumns(view, filledOnly);
   }
 
@@ -537,8 +625,10 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const approveDailyStepMutation = useApproveDailyInspectionStep(submissionId);
   const createRepairMutation = useCreateRepairRecord(submissionId);
   const approveRepairMutation = useApproveRepairRecord();
+  const cancelRepairApprovalMutation = useCancelRepairRecordApproval();
   const deleteRepairMutation = useDeleteRepairRecord(submissionId);
   const exportMonthlyView = useExportChecksheetSubmissionMonthlyView(submissionId);
+  const respondApprovalMutation = useRespondApprovalRequest();
 
   const [selectedEntryKey, setSelectedEntryKey] = useState("");
   const [selectedMode, setSelectedMode] = useState("daily");
@@ -547,7 +637,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const [entryValues, setEntryValues] = useState({});
   const [repairFormsState, setRepairFormsState] = useState({});
   const [activeRepairDialogKey, setActiveRepairDialogKey] = useState("");
+  const [activeJigNoCheckItemId, setActiveJigNoCheckItemId] = useState(null);
+  const [jigNoCheckRows, setJigNoCheckRows] = useState([createEmptyJigNoCheckRow()]);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [repairApprovalTarget, setRepairApprovalTarget] = useState(null);
+  const [repairApprovalCancelTarget, setRepairApprovalCancelTarget] = useState(null);
+  const [monthEndApprovalTarget, setMonthEndApprovalTarget] = useState(null);
+  const [monthEndDecision, setMonthEndDecision] = useState("approved");
+  const [monthEndComment, setMonthEndComment] = useState("");
 
   useEffect(() => {
     if (!supportedModes.length) return;
@@ -605,6 +702,33 @@ export default function ChecksheetSubmissionMonthlyPage() {
     () => [...(monthlyView?.regularApprovalSteps ?? [])].sort((left, right) => left.stepOrder - right.stepOrder),
     [monthlyView?.regularApprovalSteps]
   );
+  const monthEndApprovalSteps = useMemo(
+    () => [...(referenceView?.approvalSteps ?? [])].sort((left, right) => left.stepOrder - right.stepOrder),
+    [referenceView?.approvalSteps]
+  );
+  const currentMonthEndApprovalStep = useMemo(
+    () => monthEndApprovalSteps.find((step) => step.status === "in_progress") ?? null,
+    [monthEndApprovalSteps]
+  );
+  const canRespondMonthEndApproval = useMemo(() => {
+    if (!referenceView?.currentApprovalRequestId || !currentMonthEndApprovalStep || monthlyView?.status !== "submitted") {
+      return false;
+    }
+
+    const currentUserId = Number(user?.id ?? 0);
+    if (!currentUserId) {
+      return false;
+    }
+
+    const isApprover = (currentMonthEndApprovalStep.approvers ?? []).some(
+      (approver) => Number(approver.userId) === currentUserId
+    );
+    const hasResponded = (currentMonthEndApprovalStep.responses ?? []).some(
+      (response) => Number(response.userId) === currentUserId
+    );
+
+    return isApprover && !hasResponded;
+  }, [currentMonthEndApprovalStep, monthlyView?.status, referenceView?.currentApprovalRequestId, user?.id]);
   const displayColumns = useMemo(() => {
     const templateColumns = referenceView?.templateColumns ?? [];
     if (templateColumns.length > 0) {
@@ -749,6 +873,45 @@ export default function ChecksheetSubmissionMonthlyPage() {
         ...patch
       }
     }));
+  };
+
+  const handleOpenJigNoCheckDialog = (itemId) => {
+    const rows = parseJigNoCheckValue(entryValues[itemId]?.resultValue ?? "");
+    setActiveJigNoCheckItemId(itemId);
+    setJigNoCheckRows(rows.length ? rows : [createEmptyJigNoCheckRow()]);
+  };
+
+  const handleCloseJigNoCheckDialog = () => {
+    setActiveJigNoCheckItemId(null);
+    setJigNoCheckRows([createEmptyJigNoCheckRow()]);
+  };
+
+  const updateJigNoCheckRow = (index, patch) => {
+    setJigNoCheckRows((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row))
+    );
+  };
+
+  const addJigNoCheckRow = () => {
+    setJigNoCheckRows((current) => [...current, createEmptyJigNoCheckRow()]);
+  };
+
+  const removeJigNoCheckRow = (index) => {
+    setJigNoCheckRows((current) => {
+      const nextRows = current.filter((_, rowIndex) => rowIndex !== index);
+      return nextRows.length ? nextRows : [createEmptyJigNoCheckRow()];
+    });
+  };
+
+  const handleSaveJigNoCheckValue = () => {
+    if (!activeJigNoCheckItemId) {
+      return;
+    }
+
+    handleInspectionValueChange(activeJigNoCheckItemId, {
+      resultValue: serializeJigNoCheckValue(jigNoCheckRows)
+    });
+    handleCloseJigNoCheckDialog();
   };
 
   const refetchMonthlyViews = () => {
@@ -1048,6 +1211,9 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     const cell = getCellForColumn(item, entry.key, modeInspectionEntryMode);
                     const palette = getResultColor(cell?.resultValue);
                     const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                    const jigNoCheckLines = (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE
+                      ? formatJigNoCheckValue(cell?.resultValue)
+                      : [];
                     return (
                       <TableCell
                         key={`${mode}-${item.templateItemId}-${entry.key}`}
@@ -1058,7 +1224,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : palette.bg, true)}
                       >
-                        <Tooltip title={cell?.remark || cell?.note || cell?.resultValue || "No entry"}>
+                        <Tooltip title={cell?.remark || cell?.note || jigNoCheckLines.join("\n") || cell?.resultValue || "No entry"}>
                           <Typography
                             variant="caption"
                             fontWeight={700}
@@ -1070,7 +1236,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
                               textOverflow: "ellipsis"
                             }}
                           >
-                            {cell?.resultValue || "-"}
+                            {jigNoCheckLines.length ? jigNoCheckLines.map((line, lineIndex) => (
+                              <Box key={`${mode}-${item.templateItemId}-${entry.key}-${lineIndex}`} component="span" sx={{ display: "block" }}>
+                                {line}
+                              </Box>
+                            )) : cell?.resultValue || "-"}
                           </Typography>
                         </Tooltip>
                       </TableCell>
@@ -1078,7 +1248,60 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   })}
                 </TableRow>
               ))}
-              {isModeRegular && modeInspectionEntryMode === "board" && (
+              {modeInspectionEntryMode === "board" && (
+                <>
+                  <TableRow>
+                    <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
+                      Machine Record
+                    </TableCell>
+                    {modeEntryColumns.map((entry) => {
+                      const daySummary = modeDaySummaryMap.get(entry.key);
+                      const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+
+                      return (
+                        <TableCell
+                          key={`${mode}-machine-record-${entry.key}`}
+                          align="center"
+                          onClick={() => {
+                            setSelectedMode(mode);
+                            setSelectedEntryKey(entry.key);
+                          }}
+                          sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
+                        >
+                          {daySummary?.recordId ? getMachineCodesForColumn(entry, daySummary) : "-"}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                  {isModeRegular && (
+                    <TableRow>
+                      <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
+                        Inspection Date
+                      </TableCell>
+                      {modeEntryColumns.map((entry) => {
+                        const daySummary = modeDaySummaryMap.get(entry.key);
+                        const inspectionDate = getInspectionDateForColumn(entry, daySummary);
+                        const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+
+                        return (
+                          <TableCell
+                            key={`${mode}-inspection-date-${entry.key}`}
+                            align="center"
+                            onClick={() => {
+                              setSelectedMode(mode);
+                              setSelectedEntryKey(entry.key);
+                            }}
+                            sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
+                          >
+                            {daySummary?.recordId || inspectionDate ? inspectionDate || "-" : "-"}
+                          </TableCell>
+                        );
+                      })}
+                    </TableRow>
+                  )}
+                </>
+              )}
+              {modeInspectionEntryMode === "weekly" && (
                 <TableRow>
                   <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
                     Inspection Date
@@ -1090,7 +1313,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
                     return (
                       <TableCell
-                        key={`${mode}-inspection-date-${entry.key}`}
+                        key={`${mode}-weekly-inspection-date-${entry.key}`}
                         align="center"
                         onClick={() => {
                           setSelectedMode(mode);
@@ -1098,7 +1321,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
                       >
-                        {daySummary?.recordId || inspectionDate ? inspectionDate || "-" : "-"}
+                        {inspectionDate || "-"}
                       </TableCell>
                     );
                   })}
@@ -1187,14 +1410,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box sx={{ p: 3 }}>
         <Stack spacing={3}>
-          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
+          <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ xs: "stretch", md: "flex-start" }} spacing={2}>
             <Box>
               <Typography variant="h5" fontWeight={700}>Monthly Inspection Detail</Typography>
               <Typography variant="body2" color="text.secondary">
                 Daily results, shift, and simple day-by-day approvals are shown in one horizontal month sheet.
               </Typography>
             </Box>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} alignItems={{ xs: "stretch", sm: "center" }}>
               <Button
                 variant="outlined"
                 startIcon={<FileDownloadOutlinedIcon />}
@@ -1268,6 +1491,120 @@ export default function ChecksheetSubmissionMonthlyPage() {
               </Stack>
             </Stack>
           </Paper>
+          {referenceView?.currentApprovalRequestId ? (
+            <Paper variant="outlined" sx={{ p: 3 }}>
+              <Stack direction={{ xs: "column", lg: "row" }} spacing={2.5} alignItems={{ xs: "stretch", lg: "flex-start" }}>
+                <Stack spacing={1.5} sx={{ minWidth: { lg: 260 }, maxWidth: { lg: 320 } }}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={700}>Month-End Approval</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Current request #{referenceView.currentApprovalRequestId}
+                    </Typography>
+                  </Box>
+                  <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Chip label={`Submission: ${formatSubmissionStatus(monthlyView.status)}`} variant="outlined" />
+                    {currentMonthEndApprovalStep ? (
+                      <Chip color="primary" label={`Current: Step ${currentMonthEndApprovalStep.stepOrder}`} />
+                    ) : (
+                      <Chip color={monthlyView.status === "approved" ? "success" : monthlyView.status === "rejected" ? "error" : "default"} label="No active step" />
+                    )}
+                  </Stack>
+                </Stack>
+
+                <Box
+                  sx={{
+                    flex: 1,
+                    display: "grid",
+                    gap: 1.5,
+                    gridTemplateColumns: {
+                      xs: "minmax(0, 1fr)",
+                      sm: "repeat(auto-fit, minmax(180px, 220px))"
+                    },
+                    justifyContent: { xs: "stretch", sm: "end" }
+                  }}
+                >
+                  {monthEndApprovalSteps.map((step) => {
+                    const isCurrentStep = currentMonthEndApprovalStep?.id === step.id;
+                    const isApproved = step.status === "approved";
+                    const isRejected = step.status === "rejected";
+                    const cardColor = isApproved ? "success.main" : isRejected ? "error.main" : isCurrentStep ? "primary.main" : "divider";
+
+                    return (
+                      <Paper
+                        key={step.id}
+                        variant="outlined"
+                        sx={{
+                          position: "relative",
+                          minHeight: 132,
+                          p: 1.5,
+                          borderColor: cardColor,
+                          overflow: "hidden"
+                        }}
+                      >
+                        <Box sx={{ position: "absolute", top: 0, left: 0, right: 0, height: 4, bgcolor: cardColor }} />
+                        <Stack spacing={1.5} sx={{ height: "100%" }}>
+                          <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="space-between">
+                            <Chip size="small" label={`Step ${step.stepOrder}`} color={isCurrentStep ? "primary" : isApproved ? "success" : isRejected ? "error" : "default"} />
+                            <Chip
+                              size="small"
+                              color={isApproved ? "success" : isRejected ? "error" : isCurrentStep ? "primary" : "default"}
+                              icon={isApproved ? <CheckOutlinedIcon /> : undefined}
+                              label={step.status ? formatSubmissionStatus(step.status) : "-"}
+                              sx={{ fontWeight: 700, maxWidth: 96 }}
+                            />
+                          </Stack>
+                          <Box sx={{ textAlign: "center" }}>
+                            <Typography variant="subtitle2" fontWeight={800} sx={{ overflowWrap: "anywhere" }}>
+                              {step.stepName}
+                            </Typography>
+                            <Stack spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
+                              {(step.approvers ?? []).map((approver) => (
+                                <Typography key={approver.userId} variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere", textAlign: "center" }}>
+                                  {approver.fullName || approver.username || `User ${approver.userId}`}
+                                </Typography>
+                              ))}
+                            </Stack>
+                          </Box>
+                          <Box sx={{ flexGrow: 1 }} />
+                          <Stack spacing={1} alignItems="center">
+                            {(step.responses ?? []).length > 0 ? (
+                              <Stack direction="row" spacing={0.75} flexWrap="wrap" justifyContent="center" useFlexGap>
+                                {step.responses.map((response) => (
+                                  <Chip
+                                    key={response.id}
+                                    size="small"
+                                    color={response.decision === "approved" ? "success" : "error"}
+                                    label={response.fullName || response.username || `User ${response.userId}`}
+                                  />
+                                ))}
+                              </Stack>
+                            ) : null}
+                            {isCurrentStep && canRespondMonthEndApproval ? (
+                              <Button
+                                variant="contained"
+                                startIcon={<CheckOutlinedIcon />}
+                                onClick={() => {
+                                  setMonthEndApprovalTarget(step);
+                                  setMonthEndDecision("approved");
+                                  setMonthEndComment("");
+                                }}
+                                disabled={respondApprovalMutation.isPending}
+                                fullWidth
+                                size="small"
+                                sx={{ maxWidth: 160 }}
+                              >
+                                Approve
+                              </Button>
+                            ) : null}
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    );
+                  })}
+                </Box>
+              </Stack>
+            </Paper>
+          ) : null}
           <Typography variant="h6">{formatMonthTitle(monthValue)}</Typography>
           {orderedMonthlyViews.map((entry) => renderModeSheet(entry.view))}
 
@@ -1276,7 +1613,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
               <Paper variant="outlined" sx={{ p: 3 }}>
                 <Typography variant="h6" sx={{ mb: 1 }}>Inspection Entry Editor</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {inspectionEntryMode === "board" ? `Selected board code: ${selectedBoardCode || "-"}` : `Selected date: ${selectedDateString}`}
+                  {inspectionEntryMode === "board"
+                    ? `Selected board code: ${selectedBoardCode || "-"}`
+                    : inspectionEntryMode === "weekly"
+                      ? `Selected week: ${selectedEntry?.label ?? "-"}`
+                      : `Selected date: ${selectedDateString}`}
                 </Typography>
                 <ToggleButton
                   size="small"
@@ -1311,7 +1652,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
                 <TextField
                   select
-                  label={inspectionEntryMode === "board" ? "Selected Board Code" : "Selected Day"}
+                  label={inspectionEntryMode === "board" ? "Selected Board Code" : inspectionEntryMode === "weekly" ? "Selected Week" : "Selected Day"}
                   value={selectedEntry?.key ?? ""}
                   onChange={(event) => setSelectedEntryKey(event.target.value)}
                   sx={{ mb: 2, minWidth: 180 }}
@@ -1455,6 +1796,37 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                   disabled={!isDraft || isInspectionMutationPending}
                                   inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
                                 />
+                              ) : (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE ? (
+                                (() => {
+                                  const jigNoCheckLines = formatJigNoCheckValue(entryValues[item.templateItemId]?.resultValue ?? "");
+                                  return (
+                                    <Button
+                                      variant={jigNoCheckLines.length ? "contained" : "outlined"}
+                                      size="small"
+                                      fullWidth
+                                      disabled={!isDraft || isInspectionMutationPending}
+                                      onClick={() => handleOpenJigNoCheckDialog(item.templateItemId)}
+                                      sx={{
+                                        justifyContent: "flex-start",
+                                        textAlign: "left",
+                                        textTransform: "none",
+                                        whiteSpace: "normal"
+                                      }}
+                                    >
+                                      {jigNoCheckLines.length ? (
+                                        <Stack spacing={0.25} sx={{ alignItems: "flex-start" }}>
+                                          {jigNoCheckLines.map((line, lineIndex) => (
+                                            <Typography key={`${item.templateItemId}-jig-no-check-${lineIndex}`} variant="caption" component="span">
+                                              {line}
+                                            </Typography>
+                                          ))}
+                                        </Stack>
+                                      ) : (
+                                        "Input Point"
+                                      )}
+                                    </Button>
+                                  );
+                                })()
                               ) : (
                                 <TextField
                                   value={entryValues[item.templateItemId]?.resultValue ?? ""}
@@ -1491,7 +1863,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       disabled={deleteInspectionMutation.isPending}
                       onClick={() => setDeleteTarget({ type: "inspection", id: existingRecordId })}
                     >
-                      {inspectionEntryMode === "board" ? "Delete Selected Board Entry" : "Delete Selected Day"}
+                      {inspectionEntryMode === "board"
+                        ? "Delete Selected Board Entry"
+                        : inspectionEntryMode === "weekly"
+                          ? "Delete Selected Week"
+                          : "Delete Selected Day"}
                     </Button>
                   )}
                   <Button
@@ -1641,11 +2017,21 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 </Stack>
                               </Box>
                               <Stack direction="row" spacing={1} alignItems="center">
+                                {(record.checkedByAssyUserId || record.checkedByQaUserId || record.checkedByCoordinatorUserId) && (
+                                  <Button
+                                    color="warning"
+                                    variant="outlined"
+                                    disabled={cancelRepairApprovalMutation.isPending}
+                                    onClick={() => setRepairApprovalCancelTarget({ ...record, repairFormTitle: repairFormDefinition.title })}
+                                  >
+                                    Cancel Approval
+                                  </Button>
+                                )}
                                 {(!record.checkedByAssyUserId || !record.checkedByQaUserId || !record.checkedByCoordinatorUserId) && (
                                   <Button
                                     variant="outlined"
                                     disabled={approveRepairMutation.isPending}
-                                    onClick={() => approveRepairMutation.mutate({ submissionId, recordId: record.id })}
+                                    onClick={() => setRepairApprovalTarget({ ...record, repairFormTitle: repairFormDefinition.title })}
                                   >
                                     Approve Next Level
                                   </Button>
@@ -1688,6 +2074,234 @@ export default function ChecksheetSubmissionMonthlyPage() {
             deleteRepairMutation.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
           }}
         />
+        <Dialog
+          open={!!repairApprovalTarget}
+          onClose={approveRepairMutation.isPending ? undefined : () => setRepairApprovalTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Approve Repair Record</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <Typography>
+                Approve level <strong>{getNextRepairApprovalLevel(repairApprovalTarget)}</strong> for this repair record?
+              </Typography>
+              {repairApprovalTarget?.repairFormTitle ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalTarget.repairFormTitle}
+                </Typography>
+              ) : null}
+              <Typography variant="body2" color="text.secondary">
+                {repairApprovalTarget?.damageDescription}
+              </Typography>
+              {repairApprovalTarget?.repairDescription ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalTarget.repairDescription}
+                </Typography>
+              ) : null}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRepairApprovalTarget(null)} disabled={approveRepairMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={approveRepairMutation.isPending || !repairApprovalTarget}
+              onClick={() => {
+                if (!repairApprovalTarget) return;
+                approveRepairMutation.mutate(
+                  { submissionId, recordId: repairApprovalTarget.id },
+                  { onSuccess: () => setRepairApprovalTarget(null) }
+                );
+              }}
+            >
+              {approveRepairMutation.isPending ? "Saving..." : "Approve"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!repairApprovalCancelTarget}
+          onClose={cancelRepairApprovalMutation.isPending ? undefined : () => setRepairApprovalCancelTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Cancel Repair Approval</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <Alert severity="warning">
+                This will cancel only the latest completed repair approval level.
+              </Alert>
+              <Typography>
+                Cancel level <strong>{getLastRepairApprovalLevel(repairApprovalCancelTarget)}</strong> for this repair record?
+              </Typography>
+              {repairApprovalCancelTarget?.repairFormTitle ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalCancelTarget.repairFormTitle}
+                </Typography>
+              ) : null}
+              <Typography variant="body2" color="text.secondary">
+                {repairApprovalCancelTarget?.damageDescription}
+              </Typography>
+              {repairApprovalCancelTarget?.repairDescription ? (
+                <Typography variant="body2" color="text.secondary">
+                  {repairApprovalCancelTarget.repairDescription}
+                </Typography>
+              ) : null}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRepairApprovalCancelTarget(null)} disabled={cancelRepairApprovalMutation.isPending}>
+              Keep Approval
+            </Button>
+            <Button
+              color="warning"
+              variant="contained"
+              disabled={cancelRepairApprovalMutation.isPending || !repairApprovalCancelTarget}
+              onClick={() => {
+                if (!repairApprovalCancelTarget) return;
+                cancelRepairApprovalMutation.mutate(
+                  { submissionId, recordId: repairApprovalCancelTarget.id },
+                  { onSuccess: () => setRepairApprovalCancelTarget(null) }
+                );
+              }}
+            >
+              {cancelRepairApprovalMutation.isPending ? "Cancelling..." : "Cancel Approval"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog open={!!activeJigNoCheckItemId} onClose={handleCloseJigNoCheckDialog} fullWidth maxWidth="sm">
+          <DialogTitle>Input Jig No Check</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                <Typography variant="subtitle2">Point Rows</Typography>
+                <Button size="small" startIcon={<AddIcon />} onClick={addJigNoCheckRow}>
+                  Add Row
+                </Button>
+              </Stack>
+              {jigNoCheckRows.map((row, index) => (
+                <Stack key={index} direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "flex-start" }}>
+                  <TextField
+                    label="Point No"
+                    type="number"
+                    value={row.pointNo}
+                    onChange={(event) => updateJigNoCheckRow(index, { pointNo: sanitizeNumberInput(event.target.value) })}
+                    size="small"
+                    fullWidth
+                    inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                  />
+                  <TextField
+                    label="Point Value"
+                    type="number"
+                    value={row.pointValue}
+                    onChange={(event) => updateJigNoCheckRow(index, { pointValue: sanitizeNumberInput(event.target.value) })}
+                    size="small"
+                    fullWidth
+                    inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                  />
+                  <IconButton
+                    color="error"
+                    onClick={() => removeJigNoCheckRow(index)}
+                    disabled={jigNoCheckRows.length === 1}
+                    sx={{ alignSelf: { xs: "flex-end", sm: "flex-start" } }}
+                  >
+                    <DeleteOutlineIcon />
+                  </IconButton>
+                </Stack>
+              ))}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseJigNoCheckDialog}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSaveJigNoCheckValue}
+              disabled={jigNoCheckRows.some((row) => (row.pointNo && !row.pointValue) || (!row.pointNo && row.pointValue))}
+            >
+              Save
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!monthEndApprovalTarget}
+          onClose={respondApprovalMutation.isPending ? undefined : () => setMonthEndApprovalTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Respond Month-End Approval</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              {monthEndApprovalTarget ? (
+                <Alert severity="info">
+                  Step {monthEndApprovalTarget.stepOrder}: {monthEndApprovalTarget.stepName}
+                </Alert>
+              ) : null}
+              <ToggleButtonGroup
+                exclusive
+                fullWidth
+                value={monthEndDecision}
+                onChange={(_, value) => {
+                  if (value) {
+                    setMonthEndDecision(value);
+                  }
+                }}
+                disabled={respondApprovalMutation.isPending}
+                sx={{
+                  "& .MuiToggleButton-root": {
+                    py: 1.25,
+                    fontWeight: 700,
+                    textTransform: "none"
+                  }
+                }}
+              >
+                <ToggleButton value="approved" color="success">
+                  <CheckOutlinedIcon fontSize="small" sx={{ mr: 0.75 }} />
+                  Approve
+                </ToggleButton>
+                <ToggleButton value="rejected" color="error">
+                  Reject
+                </ToggleButton>
+              </ToggleButtonGroup>
+              <TextField
+                label="Comment"
+                value={monthEndComment}
+                onChange={(event) => setMonthEndComment(event.target.value)}
+                multiline
+                minRows={3}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setMonthEndApprovalTarget(null)} disabled={respondApprovalMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                if (!monthEndApprovalTarget || !referenceView?.currentApprovalRequestId) return;
+
+                respondApprovalMutation.mutate(
+                  {
+                    requestId: referenceView.currentApprovalRequestId,
+                    stepId: monthEndApprovalTarget.id,
+                    data: { decision: monthEndDecision, comment: monthEndComment.trim() || null }
+                  },
+                  {
+                    onSuccess: () => {
+                      setMonthEndApprovalTarget(null);
+                      setMonthEndDecision("approved");
+                      setMonthEndComment("");
+                    }
+                  }
+                );
+              }}
+              disabled={respondApprovalMutation.isPending}
+            >
+              {respondApprovalMutation.isPending ? "Saving..." : "Submit"}
+            </Button>
+          </DialogActions>
+        </Dialog>
         <Dialog open={!!activeRepairFormDefinition} onClose={handleCloseRepairDialog} fullWidth maxWidth="md">
           <DialogTitle>
             {activeRepairFormDefinition

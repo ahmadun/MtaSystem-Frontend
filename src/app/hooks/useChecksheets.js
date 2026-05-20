@@ -12,7 +12,9 @@ import {
   createApprovalRequest,
   approveDailyInspectionStep,
   approveRepairRecord,
+  cancelRepairRecordApproval,
   createApprovalTemplate,
+  getApprovalTemplate,
   getDashboard,
   getChecksheetAreas,
   getChecksheetMasters,
@@ -22,6 +24,7 @@ import {
   getChecksheetLines,
   getChecksheetMachine,
   getChecksheetMachines,
+  getChecksheetMachineCodeOptions,
   exportChecksheetMachineLabels,
   exportChecksheetSubmissionMonthlyView,
   deleteChecksheetArea,
@@ -55,6 +58,9 @@ import {
   updateChecksheetTemplate,
   updateChecksheetMaster,
   updateChecksheetGroup,
+  createChecksheetMachineCodeOption,
+  updateChecksheetMachineCodeOption,
+  deleteChecksheetMachineCodeOption,
   updateRepairmanChecker,
   updateChecksheetStepApprover,
   updateChecksheetLine,
@@ -62,6 +68,8 @@ import {
   upsertChecksheetMachineModeTemplate,
   updateChecksheetSubmission,
   updateInspectionRecord,
+  updateApprovalTemplate,
+  patchApprovalTemplate,
   updateRepairRecord
 } from "@api/checksheets";
 
@@ -78,6 +86,7 @@ export const CHECKSHEET_KEYS = {
   submissionMonthlyView: (id, params) => ["checksheets", "submission", id, "monthly-view", params],
   repairHistory: (params) => ["checksheets", "repair-history", params],
   approvalTemplates: (params) => ["checksheets", "approval-templates", params],
+  approvalTemplate: (id) => ["checksheets", "approval-template", id],
   approvalRequest: (submissionId, requestId) => ["checksheets", "approval-request", submissionId, requestId],
   pendingApprovals: (params) => ["checksheets", "pending-approvals", params],
   pendingRepairs: (params) => ["checksheets", "pending-repairs", params]
@@ -120,6 +129,14 @@ export const useChecksheetGroups = (options = {}) =>
   useQuery({
     queryKey: ["checksheets", "masters", "groups"],
     queryFn: () => getChecksheetGroups().then((res) => res.data),
+    staleTime: 30_000,
+    ...options
+  });
+
+export const useChecksheetMachineCodeOptions = (options = {}) =>
+  useQuery({
+    queryKey: ["checksheets", "masters", "machine-code-options"],
+    queryFn: () => getChecksheetMachineCodeOptions().then((res) => res.data),
     staleTime: 30_000,
     ...options
   });
@@ -195,6 +212,15 @@ export const useUpdateChecksheetGroup = (groupCode) =>
 
 export const useDeleteChecksheetGroup = () =>
   useSnackbarMutation(deleteChecksheetGroup, [CHECKSHEET_KEYS.all], "Group deleted successfully");
+
+export const useCreateChecksheetMachineCodeOption = () =>
+  useSnackbarMutation(createChecksheetMachineCodeOption, [CHECKSHEET_KEYS.all], "Machine code option created successfully");
+
+export const useUpdateChecksheetMachineCodeOption = (machineCode) =>
+  useSnackbarMutation((data) => updateChecksheetMachineCodeOption(machineCode, data), [CHECKSHEET_KEYS.all], "Machine code option updated successfully");
+
+export const useDeleteChecksheetMachineCodeOption = () =>
+  useSnackbarMutation(deleteChecksheetMachineCodeOption, [CHECKSHEET_KEYS.all], "Machine code option deleted successfully");
 
 export const useCreateRepairmanChecker = () =>
   useSnackbarMutation(createRepairmanChecker, [CHECKSHEET_KEYS.all], "Repairman checker created successfully");
@@ -427,6 +453,13 @@ export const useApproveRepairRecord = () =>
     "Repair approval recorded successfully"
   );
 
+export const useCancelRepairRecordApproval = () =>
+  useSnackbarMutation(
+    ({ submissionId, recordId }) => cancelRepairRecordApproval(submissionId, recordId),
+    [["checksheets", "pending-repairs"], CHECKSHEET_KEYS.all],
+    "Repair approval cancelled successfully"
+  );
+
 export const useApprovalTemplates = (params = {}, options = {}) =>
   useQuery({
     queryKey: CHECKSHEET_KEYS.approvalTemplates(params),
@@ -436,8 +469,23 @@ export const useApprovalTemplates = (params = {}, options = {}) =>
     ...options
   });
 
+export const useApprovalTemplate = (id, options = {}) =>
+  useQuery({
+    queryKey: CHECKSHEET_KEYS.approvalTemplate(id),
+    queryFn: () => getApprovalTemplate(id).then((res) => res.data),
+    enabled: !!id,
+    staleTime: 30_000,
+    ...options
+  });
+
 export const useCreateApprovalTemplate = () =>
   useSnackbarMutation(createApprovalTemplate, [CHECKSHEET_KEYS.all], "Approval template created successfully");
+
+export const useUpdateApprovalTemplate = (id) =>
+  useSnackbarMutation((data) => updateApprovalTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.approvalTemplate(id)], "Approval template updated successfully");
+
+export const usePatchApprovalTemplate = (id) =>
+  useSnackbarMutation((data) => patchApprovalTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.approvalTemplate(id)], "Approval template updated successfully");
 
 export const useCreateApprovalRequest = (submissionId) =>
   useSnackbarMutation((data) => createApprovalRequest(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], ["checksheets", "pending-approvals"]], "Approval request created successfully");
