@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -33,6 +34,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import FileDownloadOutlinedIcon from "@mui/icons-material/FileDownloadOutlined";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
+import { getChecksheetSubmissionMonthlyView } from "@api/checksheets";
 import { ConfirmationDialog } from "app/components";
 import useAuth from "app/hooks/useAuth";
 import {
@@ -293,6 +295,7 @@ function normalizeInspectionEntryMode(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "board") return "board";
   if (normalized === "weekly") return "weekly";
+  if (normalized === "free_text") return "free_text";
   return "date";
 }
 
@@ -367,8 +370,19 @@ function getBoardCodeFromEntry(entry) {
   );
 }
 
+function getRawEntryCode(entry) {
+  return String(
+    entry?.boardCode ??
+    entry?.boardNumber ??
+    entry?.boardNo ??
+    entry?.sampleCode ??
+    entry?.sampleNumber ??
+    ""
+  ).trim();
+}
+
 function getEntryColumnKey(entry, inspectionEntryMode = "date") {
-  if (inspectionEntryMode === "board") {
+  if (inspectionEntryMode === "board" || inspectionEntryMode === "free_text") {
     const boardCode = getBoardCodeFromEntry(entry);
     if (boardCode) {
       return `board:${boardCode}`;
@@ -389,6 +403,10 @@ function getEntryColumnLabel(entry, inspectionEntryMode = "date") {
     if (boardCode) {
       return boardCode;
     }
+  }
+
+  if (inspectionEntryMode === "free_text") {
+    return getRawEntryCode(entry) || "-";
   }
 
   const day = Number(entry?.day);
@@ -438,7 +456,7 @@ function getEntryColumnData(entry, inspectionEntryMode) {
   return {
     key,
     label: getEntryColumnLabel(entry, inspectionEntryMode),
-    boardCode: inspectionEntryMode === "board" ? getBoardCodeFromEntry(entry) : "",
+    boardCode: inspectionEntryMode === "board" ? getBoardCodeFromEntry(entry) : inspectionEntryMode === "free_text" ? getRawEntryCode(entry) : "",
     inspectionDate: entry?.inspectionDate ?? null
   };
 }
@@ -500,6 +518,20 @@ function getResultColor(resultValue) {
   if (resultValue === "NG") return { bg: "#ffebee", color: "#b71c1c" };
   if (resultValue === "FIX") return { bg: "#fff8e1", color: "#8d6e00" };
   return { bg: "#f8fafc", color: "#64748b" };
+}
+
+function getInspectionEntrySelectLabel(inspectionEntryMode) {
+  if (inspectionEntryMode === "board") return "Selected Board Code";
+  if (inspectionEntryMode === "weekly") return "Selected Week";
+  if (inspectionEntryMode === "free_text") return "Selected Entry";
+  return "Selected Day";
+}
+
+function getDeleteEntryLabel(inspectionEntryMode) {
+  if (inspectionEntryMode === "board") return "Delete Selected Board Entry";
+  if (inspectionEntryMode === "weekly") return "Delete Selected Week";
+  if (inspectionEntryMode === "free_text") return "Delete Selected Entry";
+  return "Delete Selected Day";
 }
 
 function parseColumnOptions(optionsJson) {
@@ -678,6 +710,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const submissionId = Number(id);
   const requestedYear = Number(searchParams.get("year"));
   const requestedMonth = Number(searchParams.get("month"));
+  const requestedMode = normalizeChecksheetMode(searchParams.get("checksheetMode"));
+  const requestedTemplateId = searchParams.get("templateId") || "";
   const requestedMonthValue = requestedYear > 0 && requestedMonth >= 1 && requestedMonth <= 12
     ? `${requestedYear}-${String(requestedMonth).padStart(2, "0")}`
     : null;
@@ -690,18 +724,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
     { enabled: !!submissionId }
   );
   const bootstrapMode = normalizeChecksheetMode(bootstrapMonthlyQuery.data?.checksheetMode);
+  const bootstrapTemplateId = bootstrapMonthlyQuery.data?.templateId ? String(bootstrapMonthlyQuery.data.templateId) : "";
   const supportedModes = useMemo(() => {
     const modes = bootstrapMonthlyQuery.data?.availableModes ?? [];
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
   }, [bootstrapMonthlyQuery.data?.availableModes]);
-  const secondaryMode = useMemo(
-    () => supportedModes.find((mode) => mode !== bootstrapMode) ?? null,
-    [bootstrapMode, supportedModes]
-  );
-  const secondaryMonthlyQuery = useChecksheetSubmissionMonthlyView(
-    submissionId,
-    secondaryMode ? { year, month, checksheetMode: secondaryMode } : { year, month },
-    { enabled: !!submissionId && !!secondaryMode }
+  const availableModeTemplates = useMemo(
+    () => bootstrapMonthlyQuery.data?.availableModeTemplates ?? [],
+    [bootstrapMonthlyQuery.data?.availableModeTemplates]
   );
 
   const createInspectionMutation = useCreateInspectionRecord(submissionId);
@@ -715,7 +745,24 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const respondApprovalMutation = useRespondApprovalRequest();
 
   const [selectedEntryKey, setSelectedEntryKey] = useState("");
-  const [selectedMode, setSelectedMode] = useState("daily");
+  const [selectedMode, setSelectedMode] = useState(requestedMode || "daily");
+  const [selectedTemplateId, setSelectedTemplateId] = useState(requestedTemplateId);
+  const assignedMonthlyQueries = useQueries({
+    queries: availableModeTemplates
+      .filter((assignment) => assignment.templateId)
+      .map((assignment) => {
+        const assignmentMode = normalizeChecksheetMode(assignment.checksheetMode);
+        const assignmentTemplateId = String(assignment.templateId);
+        const params = { year, month, checksheetMode: assignmentMode, templateId: assignmentTemplateId };
+
+        return {
+          queryKey: ["checksheets", "submission", submissionId, "monthly-view", params],
+          queryFn: () => getChecksheetSubmissionMonthlyView(submissionId, params).then((res) => res.data),
+          enabled: !!submissionId && !!year && !!month && !!assignmentMode && !!assignmentTemplateId,
+          staleTime: 5_000
+        };
+      })
+  });
   const [inspectionShift, setInspectionShift] = useState("1");
   const [inspectionNote, setInspectionNote] = useState("");
   const [entryValues, setEntryValues] = useState({});
@@ -731,33 +778,39 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const [monthEndComment, setMonthEndComment] = useState("");
 
   useEffect(() => {
-    if (!supportedModes.length) return;
+    if (!availableModeTemplates.length) return;
+    setSelectedTemplateId((current) =>
+      availableModeTemplates.some((item) => String(item.templateId) === String(current))
+        ? current
+        : String(bootstrapTemplateId || availableModeTemplates[0].templateId)
+    );
     setSelectedMode((current) => (supportedModes.includes(current) ? current : bootstrapMode || supportedModes[0]));
-  }, [bootstrapMode, supportedModes]);
+  }, [availableModeTemplates, bootstrapMode, bootstrapTemplateId, supportedModes]);
 
-  const availableModes = supportedModes;
   const monthlyViews = useMemo(() => {
     const viewMap = new Map();
-    [bootstrapMonthlyQuery.data, secondaryMonthlyQuery.data].forEach((view) => {
+    [bootstrapMonthlyQuery.data, ...assignedMonthlyQueries.map((query) => query.data)].forEach((view) => {
       const mode = normalizeChecksheetMode(view?.checksheetMode);
-      if (view && mode && !viewMap.has(mode)) {
-        viewMap.set(mode, view);
+      const key = `${mode}:${view?.templateId ?? ""}`;
+      if (view && mode && !viewMap.has(key)) {
+        viewMap.set(key, view);
       }
     });
-    return Array.from(viewMap.entries()).map(([mode, view]) => ({ mode, view }));
-  }, [bootstrapMonthlyQuery.data, secondaryMonthlyQuery.data]);
+    return Array.from(viewMap.values()).map((view) => ({ mode: normalizeChecksheetMode(view.checksheetMode), templateId: String(view.templateId ?? ""), view }));
+  }, [assignedMonthlyQueries, bootstrapMonthlyQuery.data]);
   const orderedMonthlyViews = useMemo(
     () =>
       [...monthlyViews].sort((left, right) => {
         const order = { daily: 0, regular: 1 };
-        return (order[left.mode] ?? 99) - (order[right.mode] ?? 99);
+        return (order[left.mode] ?? 99) - (order[right.mode] ?? 99) ||
+          String(left.view?.templateName ?? "").localeCompare(String(right.view?.templateName ?? ""));
       }),
     [monthlyViews]
   );
-  const monthlyView = monthlyViews.find((entry) => entry.mode === selectedMode)?.view ?? bootstrapMonthlyQuery.data ?? secondaryMonthlyQuery.data ?? null;
-  const referenceView = bootstrapMonthlyQuery.data ?? secondaryMonthlyQuery.data ?? null;
-  const isMonthlyLoading = bootstrapMonthlyQuery.isLoading || secondaryMonthlyQuery.isLoading;
-  const monthlyError = bootstrapMonthlyQuery.error || secondaryMonthlyQuery.error;
+  const monthlyView = monthlyViews.find((entry) => entry.mode === selectedMode && entry.templateId === selectedTemplateId)?.view ?? bootstrapMonthlyQuery.data ?? assignedMonthlyQueries.find((query) => query.data)?.data ?? null;
+  const referenceView = bootstrapMonthlyQuery.data ?? assignedMonthlyQueries.find((query) => query.data)?.data ?? null;
+  const isMonthlyLoading = bootstrapMonthlyQuery.isLoading || assignedMonthlyQueries.some((query) => query.isLoading);
+  const monthlyError = bootstrapMonthlyQuery.error || assignedMonthlyQueries.find((query) => query.error)?.error;
   const isMonthlyError = !referenceView && !isMonthlyLoading;
 
   useEffect(() => {
@@ -1002,14 +1055,13 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
   const refetchMonthlyViews = () => {
     bootstrapMonthlyQuery.refetch();
-    if (secondaryMode) {
-      secondaryMonthlyQuery.refetch();
-    }
+    assignedMonthlyQueries.forEach((query) => query.refetch());
   };
 
   const handleSaveInspectionRecord = () => {
     const payload = {
       recordType: checksheetMode,
+      templateId: monthlyView?.templateId,
       inspectionDate: selectedDateString,
       shift: inspectionShift || null,
       note: inspectionNote.trim() || null,
@@ -1019,7 +1071,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
     };
 
     payload.inspectionDate = selectedDateString;
-    payload.boardCode = inspectionEntryMode === "board" ? selectedBoardCode || null : null;
+    payload.boardCode = inspectionEntryMode === "board" || inspectionEntryMode === "free_text" ? selectedBoardCode || null : null;
     payload.note = buildInspectionNote(inspectionNote);
 
     if (existingRecordId) {
@@ -1149,6 +1201,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
   const renderModeSheet = (modeView) => {
     const mode = (modeView?.checksheetMode ?? "daily").toLowerCase();
+    const modeTemplateId = String(modeView?.templateId ?? "");
     const isModeRegular = mode === "regular";
     const modeInspectionEntryMode = normalizeInspectionEntryMode(modeView?.inspectionEntryMode ?? referenceView?.inspectionEntryMode);
     const modeItems = modeView?.items ?? [];
@@ -1180,7 +1233,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
     const modeRowSpanMap = buildRowSpanMap(modeItems, modeDisplayColumns, (item, column) => item?.itemData?.[column.key]);
     const modeEntryColumns = buildEntryColumns(modeView, modeInspectionEntryMode, isModeRegular);
     const modeDaySummaryMap = new Map((modeView?.daySummaries ?? []).map((daySummary) => [getEntryColumnKey(daySummary, modeInspectionEntryMode), daySummary]));
-    const modeSelectedEntry = selectedMode === mode && modeEntryColumns.some((entry) => entry.key === selectedEntryKey)
+    const modeSelectedEntry = selectedMode === mode && selectedTemplateId === modeTemplateId && modeEntryColumns.some((entry) => entry.key === selectedEntryKey)
       ? selectedEntryKey
       : modeEntryColumns[0]?.key ?? "";
     const modeFilledDays = new Set();
@@ -1199,6 +1252,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
           <Stack direction="row" spacing={1}>
             <Chip label={`${modeFilledDays.size}/${modeTotalDays} filled`} variant="outlined" />
             <Chip label={`Mode: ${String(mode).toUpperCase()}`} variant="outlined" />
+            {modeView?.templateName && <Chip label={modeView.templateName} variant="outlined" />}
           </Stack>
         </Stack>
         <TableContainer
@@ -1245,13 +1299,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   </TableCell>
                 ))}
                 {modeEntryColumns.map((entry) => {
-                  const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                  const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
                   return (
                     <TableCell
                       key={`${mode}-entry-${entry.key}`}
                       align="center"
                       onClick={() => {
                         setSelectedMode(mode);
+                        setSelectedTemplateId(modeTemplateId);
                         setSelectedEntryKey(entry.key);
                       }}
                       sx={{
@@ -1298,7 +1353,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   {modeEntryColumns.map((entry) => {
                     const cell = getCellForColumn(item, entry.key, modeInspectionEntryMode);
                     const palette = getResultColor(cell?.resultValue);
-                    const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                    const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
                     const jigNoCheckLines = (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE
                       ? formatJigNoCheckValue(cell?.resultValue)
                       : [];
@@ -1308,6 +1363,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         align="center"
                         onClick={() => {
                           setSelectedMode(mode);
+                          setSelectedTemplateId(modeTemplateId);
                           setSelectedEntryKey(entry.key);
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : palette.bg, true)}
@@ -1344,7 +1400,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     </TableCell>
                     {modeEntryColumns.map((entry) => {
                       const daySummary = modeDaySummaryMap.get(entry.key);
-                      const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                      const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
 
                       return (
                         <TableCell
@@ -1352,6 +1408,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                           align="center"
                           onClick={() => {
                             setSelectedMode(mode);
+                            setSelectedTemplateId(modeTemplateId);
                             setSelectedEntryKey(entry.key);
                           }}
                           sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
@@ -1369,7 +1426,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       {modeEntryColumns.map((entry) => {
                         const daySummary = modeDaySummaryMap.get(entry.key);
                         const inspectionDate = getInspectionDateForColumn(entry, daySummary);
-                        const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                        const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
 
                         return (
                           <TableCell
@@ -1377,6 +1434,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                             align="center"
                             onClick={() => {
                               setSelectedMode(mode);
+                              setSelectedTemplateId(modeTemplateId);
                               setSelectedEntryKey(entry.key);
                             }}
                             sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
@@ -1397,7 +1455,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   {modeEntryColumns.map((entry) => {
                     const daySummary = modeDaySummaryMap.get(entry.key);
                     const inspectionDate = getInspectionDateForColumn(entry, daySummary);
-                    const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                    const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
 
                     return (
                       <TableCell
@@ -1405,6 +1463,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         align="center"
                         onClick={() => {
                           setSelectedMode(mode);
+                          setSelectedTemplateId(modeTemplateId);
                           setSelectedEntryKey(entry.key);
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
@@ -1419,13 +1478,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>Shift</TableCell>
                 {modeEntryColumns.map((entry) => {
                   const daySummary = modeDaySummaryMap.get(entry.key);
-                  const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                  const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
                   return (
                     <TableCell
                       key={`${mode}-shift-${entry.key}`}
                       align="center"
                       onClick={() => {
                         setSelectedMode(mode);
+                        setSelectedTemplateId(modeTemplateId);
                         setSelectedEntryKey(entry.key);
                       }}
                       sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
@@ -1442,13 +1502,14 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     const daySummary = modeDaySummaryMap.get(entry.key);
                     const approval = daySummary?.approvals?.find((entry) => entry.stepId === step.id);
                     const canApprove = canApproveStepForDay(daySummary, step, modeApprovalSteps);
-                    const isSelected = selectedMode === mode && entry.key === modeSelectedEntry;
+                    const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
                     return (
                       <TableCell
                         key={`${mode}-approval-${step.id}-${entry.key}`}
                         align="center"
                         onClick={() => {
                           setSelectedMode(mode);
+                          setSelectedTemplateId(modeTemplateId);
                           setSelectedEntryKey(entry.key);
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
@@ -1707,16 +1768,26 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       ? `Selected week: ${selectedEntry?.label ?? "-"}`
                       : `Selected date: ${selectedDateString}`}
                 </Typography>
-                <ToggleButton
+                <TextField
+                  select
                   size="small"
-                  value={selectedMode}
-                  selected
-                  sx={{ mb: 2 }}
-                  onChange={() => setSelectedMode((current) => (current === "daily" ? "regular" : "daily"))}
-                  disabled={!availableModes.includes(selectedMode === "daily" ? "regular" : "daily")}
+                  label="Editing Checksheet"
+                  value={selectedTemplateId}
+                  onChange={(event) => {
+                    const nextTemplateId = event.target.value;
+                    const assignment = availableModeTemplates.find((item) => String(item.templateId) === String(nextTemplateId));
+                    setSelectedTemplateId(nextTemplateId);
+                    setSelectedMode(normalizeChecksheetMode(assignment?.checksheetMode, selectedMode));
+                    setSelectedEntryKey("");
+                  }}
+                  sx={{ mb: 2, minWidth: 320 }}
                 >
-                  Editing Mode: {selectedMode}
-                </ToggleButton>
+                  {availableModeTemplates.map((item) => (
+                    <MenuItem key={`${item.checksheetMode}-${item.templateId}`} value={String(item.templateId)}>
+                      {String(item.checksheetMode).toUpperCase()} - {item.templateName || `Template ${item.templateId}`}
+                    </MenuItem>
+                  ))}
+                </TextField>
 
                 <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
                   {(selectedMode === "regular" ? regularApprovalSteps : dailyApprovalSteps).map((step) => {
@@ -1740,7 +1811,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
                 <TextField
                   select
-                  label={inspectionEntryMode === "board" ? "Selected Board Code" : inspectionEntryMode === "weekly" ? "Selected Week" : "Selected Day"}
+                  label={getInspectionEntrySelectLabel(inspectionEntryMode)}
                   value={selectedEntry?.key ?? ""}
                   onChange={(event) => setSelectedEntryKey(event.target.value)}
                   sx={{ mb: 2, minWidth: 180 }}
@@ -1954,11 +2025,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       disabled={deleteInspectionMutation.isPending}
                       onClick={() => setDeleteTarget({ type: "inspection", id: existingRecordId })}
                     >
-                      {inspectionEntryMode === "board"
-                        ? "Delete Selected Board Entry"
-                        : inspectionEntryMode === "weekly"
-                          ? "Delete Selected Week"
-                          : "Delete Selected Day"}
+                      {getDeleteEntryLabel(inspectionEntryMode)}
                     </Button>
                   )}
                   <Button

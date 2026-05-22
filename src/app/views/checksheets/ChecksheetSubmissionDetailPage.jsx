@@ -366,7 +366,21 @@ function normalizeInspectionEntryMode(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "board") return "board";
   if (normalized === "weekly") return "weekly";
+  if (normalized === "free_text") return "free_text";
   return "date";
+}
+
+function parseInspectionEntryOptions(optionsJson) {
+  if (!optionsJson) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(optionsJson);
+    return Array.isArray(parsed) ? parsed.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
 }
 
 function getWeekOfMonth(dateValue) {
@@ -408,10 +422,14 @@ function getWeeklyEntryOptions(dateValue) {
   });
 }
 
-function getLatestRecordForMode(records, mode) {
+function isRecordForTemplate(record, templateId) {
+  return !templateId || !record.templateId || Number(record.templateId) === Number(templateId);
+}
+
+function getLatestRecordForMode(records, mode, templateId) {
   const normalizedMode = normalizeChecksheetMode(mode);
   return [...(records ?? [])]
-    .filter((record) => mapRecordTypeToUi(record.recordType) === normalizedMode)
+    .filter((record) => mapRecordTypeToUi(record.recordType) === normalizedMode && isRecordForTemplate(record, templateId))
     .sort((left, right) => {
       const leftDate = left.inspectionDate ? new Date(left.inspectionDate).getTime() : 0;
       const rightDate = right.inspectionDate ? new Date(right.inspectionDate).getTime() : 0;
@@ -419,7 +437,7 @@ function getLatestRecordForMode(records, mode) {
     })[0] ?? null;
 }
 
-function getRecordForModeAndDate(records, mode, inspectionDate) {
+function getRecordForModeAndDate(records, mode, inspectionDate, templateId) {
   if (!inspectionDate) {
     return null;
   }
@@ -428,12 +446,13 @@ function getRecordForModeAndDate(records, mode, inspectionDate) {
   return [...(records ?? [])]
     .filter((record) =>
       mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      isRecordForTemplate(record, templateId) &&
       String(record.inspectionDate ?? "") === String(inspectionDate)
     )
     .sort((left, right) => right.id - left.id)[0] ?? null;
 }
 
-function getRecordForModeAndWeek(records, mode, inspectionDate) {
+function getRecordForModeAndWeek(records, mode, inspectionDate, templateId) {
   if (!inspectionDate) {
     return null;
   }
@@ -445,6 +464,7 @@ function getRecordForModeAndWeek(records, mode, inspectionDate) {
   return [...(records ?? [])]
     .filter((record) =>
       mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      isRecordForTemplate(record, templateId) &&
       String(record.inspectionDate ?? "").slice(0, 7) === selectedMonth &&
       getWeekOfMonth(record.inspectionDate) === selectedWeek
     )
@@ -526,7 +546,7 @@ function getRecordBoardCode(record) {
   );
 }
 
-function getRecordForModeAndBoardCode(records, mode, boardCode) {
+function getRecordForModeAndBoardCode(records, mode, boardCode, templateId) {
   const normalizedBoardCode = normalizeBoardCode(boardCode);
   if (!normalizedBoardCode) {
     return null;
@@ -536,6 +556,7 @@ function getRecordForModeAndBoardCode(records, mode, boardCode) {
   return [...(records ?? [])]
     .filter((record) =>
       mapRecordTypeToUi(record.recordType) === normalizedMode &&
+      isRecordForTemplate(record, templateId) &&
       getRecordBoardCode(record) === normalizedBoardCode
     )
     .sort((left, right) => right.id - left.id)[0] ?? null;
@@ -642,6 +663,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const { user } = useAuth();
   const submissionId = Number(id);
   const [selectedMode, setSelectedMode] = useState("");
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const {
     data: baseSubmission,
     isLoading: isBaseLoading,
@@ -650,7 +672,7 @@ export default function ChecksheetSubmissionDetailPage() {
   } = useChecksheetSubmission(submissionId);
   const checksheetMode = normalizeChecksheetMode(selectedMode || baseSubmission?.checksheetMode || "");
   const { data: submission, isLoading, isError, error } = useChecksheetSubmission(submissionId, {
-    params: checksheetMode ? { checksheetMode } : undefined,
+    params: checksheetMode ? { checksheetMode, ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}) } : undefined,
     enabled: !!submissionId && !!checksheetMode
   });
   const { data: approvalTemplates } = useApprovalTemplates({ page: 1, pageSize: 100, isActive: true });
@@ -692,8 +714,8 @@ export default function ChecksheetSubmissionDetailPage() {
 
   const inspectionRecords = submission?.inspectionRecords ?? [];
   const latestInspectionRecord = useMemo(
-    () => getLatestRecordForMode(inspectionRecords, checksheetMode),
-    [inspectionRecords, checksheetMode]
+    () => getLatestRecordForMode(inspectionRecords, checksheetMode, selectedTemplateId),
+    [inspectionRecords, checksheetMode, selectedTemplateId]
   );
   const inspectionEntryMode = useMemo(
     () => normalizeInspectionEntryMode(submission?.template?.inspectionEntryMode),
@@ -701,17 +723,17 @@ export default function ChecksheetSubmissionDetailPage() {
   );
   const selectedInspectionRecord = useMemo(
     () => {
-      if (inspectionEntryMode === "board") {
-        return getRecordForModeAndBoardCode(inspectionRecords, checksheetMode, boardCode);
+      if (inspectionEntryMode === "board" || inspectionEntryMode === "free_text") {
+        return getRecordForModeAndBoardCode(inspectionRecords, checksheetMode, boardCode, selectedTemplateId);
       }
 
       if (inspectionEntryMode === "weekly") {
-        return getRecordForModeAndWeek(inspectionRecords, checksheetMode, inspectionDate);
+        return getRecordForModeAndWeek(inspectionRecords, checksheetMode, inspectionDate, selectedTemplateId);
       }
 
-      return getRecordForModeAndDate(inspectionRecords, checksheetMode, inspectionDate);
+      return getRecordForModeAndDate(inspectionRecords, checksheetMode, inspectionDate, selectedTemplateId);
     },
-    [boardCode, checksheetMode, inspectionDate, inspectionEntryMode, inspectionRecords]
+    [boardCode, checksheetMode, inspectionDate, inspectionEntryMode, inspectionRecords, selectedTemplateId]
   );
   const updateInspectionMutation = useUpdateInspectionRecord(submissionId, selectedInspectionRecord?.id);
   const monthlyParams = useMemo(
@@ -722,9 +744,9 @@ export default function ChecksheetSubmissionDetailPage() {
         latestInspectionRecord?.inspectionDate ||
         submission?.inspectionDate
       );
-      return base ? { ...base, checksheetMode } : null;
+      return base ? { ...base, checksheetMode, ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}) } : null;
     },
-    [checksheetMode, inspectionDate, latestInspectionRecord?.inspectionDate, selectedInspectionRecord?.inspectionDate, submission?.inspectionDate]
+    [checksheetMode, inspectionDate, latestInspectionRecord?.inspectionDate, selectedInspectionRecord?.inspectionDate, selectedTemplateId, submission?.inspectionDate]
   );
   const { data: monthlyView } = useChecksheetSubmissionMonthlyView(submissionId, monthlyParams, {
     enabled: !!submissionId && !!monthlyParams?.year && !!monthlyParams?.month
@@ -809,10 +831,20 @@ export default function ChecksheetSubmissionDetailPage() {
     () => getWeeklyEntryOptions(inspectionDate || latestInspectionRecord?.inspectionDate || submission?.inspectionDate),
     [inspectionDate, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]
   );
+  const freeTextEntryOptions = useMemo(
+    () => parseInspectionEntryOptions(submission?.template?.inspectionEntryOptionsJson),
+    [submission?.template?.inspectionEntryOptionsJson]
+  );
   const machineModes = useMemo(() => {
     const modes = currentMachine?.modes?.length ? currentMachine.modes : [submission?.checksheetMode ?? "daily"];
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
   }, [currentMachine?.modes, submission?.checksheetMode]);
+  const modeTemplateOptions = useMemo(
+    () => (currentMachine?.modeTemplates ?? [])
+      .filter((item) => normalizeChecksheetMode(item.checksheetMode) === checksheetMode && item.templateId)
+      .sort((left, right) => String(left.templateName ?? "").localeCompare(String(right.templateName ?? ""))),
+    [checksheetMode, currentMachine?.modeTemplates]
+  );
   const isInspectionMutationPending = createInspectionMutation.isPending || updateInspectionMutation.isPending || approveDailyStepMutation.isPending;
   const currentDaySummary = useMemo(
     () => (selectedInspectionRecord?.id ? monthlyView?.daySummaries?.find((entry) => entry.recordId === selectedInspectionRecord.id) ?? null : null),
@@ -859,8 +891,32 @@ export default function ChecksheetSubmissionDetailPage() {
   }, [baseSubmission?.checksheetMode, selectedMode]);
 
   useEffect(() => {
+    if (!checksheetMode || modeTemplateOptions.length === 0) {
+      setSelectedTemplateId("");
+      return;
+    }
+
+    setSelectedTemplateId((current) =>
+      modeTemplateOptions.some((item) => String(item.templateId) === String(current))
+        ? current
+        : String(modeTemplateOptions[0].templateId)
+    );
+  }, [checksheetMode, modeTemplateOptions]);
+
+  useEffect(() => {
     if (inspectionEntryMode === "board") {
       setBoardCode(getRecordBoardCode(latestInspectionRecord) || "");
+      return;
+    }
+
+    if (inspectionEntryMode === "free_text") {
+      const latestEntry = getRecordBoardCode(latestInspectionRecord);
+      setBoardCode(
+        freeTextEntryOptions.find((option) => normalizeBoardCode(option) === latestEntry) ??
+        freeTextEntryOptions[0] ??
+        ""
+      );
+      setInspectionDate(submission?.inspectionDate ?? latestInspectionRecord?.inspectionDate ?? "");
       return;
     }
 
@@ -871,7 +927,7 @@ export default function ChecksheetSubmissionDetailPage() {
     }
 
     setInspectionDate(latestInspectionRecord?.inspectionDate ?? submission?.inspectionDate ?? "");
-  }, [checksheetMode, inspectionEntryMode, latestInspectionRecord?.id, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]);
+  }, [checksheetMode, freeTextEntryOptions, inspectionEntryMode, latestInspectionRecord?.id, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]);
 
   useEffect(() => {
     setInspectionShift(selectedInspectionRecord?.shift ?? submission?.shift ?? "1");
@@ -910,6 +966,7 @@ export default function ChecksheetSubmissionDetailPage() {
     () => Object.values(entryValues).some((value) => value.resultValue?.trim() || value.remark?.trim()),
     [entryValues]
   );
+  const hasRequiredInspectionEntry = inspectionEntryMode !== "free_text" || !!boardCode.trim();
   const activeRepairFormDefinition = useMemo(
     () => availableRepairForms.find((repairForm) => repairForm.formKey === activeRepairDialogKey) ?? null,
     [activeRepairDialogKey, availableRepairForms]
@@ -1007,10 +1064,12 @@ export default function ChecksheetSubmissionDetailPage() {
       : inspectionEntryMode === "weekly"
         ? inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null
         : inspectionDate || selectedInspectionRecord?.inspectionDate || submission?.inspectionDate || null;
+    const isEntryCodeMode = inspectionEntryMode === "board" || inspectionEntryMode === "free_text";
     const payload = {
       recordType: checksheetMode,
+      templateId: selectedTemplateId ? Number(selectedTemplateId) : undefined,
       inspectionDate: resolvedInspectionDate,
-      boardCode: inspectionEntryMode === "board" ? normalizeBoardCode(boardCode) || null : null,
+      boardCode: isEntryCodeMode ? (inspectionEntryMode === "board" ? normalizeBoardCode(boardCode) : boardCode.trim()) || null : null,
       machineCodes: inspectionEntryMode === "board" ? selectedInspectionMachineCodes : [],
       shift: inspectionShift || null,
       note: buildInspectionNote(inspectionNote),
@@ -1289,6 +1348,7 @@ export default function ChecksheetSubmissionDetailPage() {
                   onChange={(event) => {
                     const nextMode = event.target.value;
                     setSelectedMode(nextMode);
+                    setSelectedTemplateId("");
                     updateSubmissionMutation.mutate({
                       machineCode: submission.machineCode,
                       checksheetMode: nextMode,
@@ -1331,6 +1391,22 @@ export default function ChecksheetSubmissionDetailPage() {
                   ))}
                 </RadioGroup>
               </Stack>
+              {modeTemplateOptions.length > 1 && (
+                <TextField
+                  select
+                  size="small"
+                  label="Checksheet"
+                  value={selectedTemplateId}
+                  onChange={(event) => setSelectedTemplateId(event.target.value)}
+                  sx={{ minWidth: { xs: "100%", md: 320 } }}
+                >
+                  {modeTemplateOptions.map((item) => (
+                    <MenuItem key={`${item.checksheetMode}-${item.templateId}`} value={String(item.templateId)}>
+                      {item.templateName || `Template ${item.templateId}`}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              )}
               {!isDraft && (
                 <Typography variant="caption" color="text.secondary">
                   Mode can only be changed in DRAFT status.
@@ -1342,7 +1418,7 @@ export default function ChecksheetSubmissionDetailPage() {
               <Button
                 variant="contained"
                 startIcon={<CalendarMonthOutlinedIcon />}
-                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
+                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly?checksheetMode=${checksheetMode}${selectedTemplateId ? `&templateId=${selectedTemplateId}` : ""}`)}
               >
                 Open Monthly Detail
               </Button>
@@ -1422,6 +1498,20 @@ export default function ChecksheetSubmissionDetailPage() {
                       sx={{ width: { xs: "100%", md: 180 }, flexShrink: 0 }}
                     />
                   </Stack>
+                ) : inspectionEntryMode === "free_text" ? (
+                  <TextField
+                    select
+                    label="Inspection Entry"
+                    value={boardCode}
+                    onChange={(event) => setBoardCode(event.target.value)}
+                    size="small"
+                    fullWidth
+                    sx={{ flex: 1, minWidth: 0 }}
+                  >
+                    {freeTextEntryOptions.map((option) => (
+                      <MenuItem key={option} value={option}>{option}</MenuItem>
+                    ))}
+                  </TextField>
                 ) : inspectionEntryMode === "weekly" ? (
                   <TextField
                     select
@@ -1662,7 +1752,7 @@ export default function ChecksheetSubmissionDetailPage() {
               )}
               <Button
                 variant="contained"
-                disabled={!isDraft || !hasAnyInspectionValue || isInspectionMutationPending}
+                disabled={!isDraft || !hasRequiredInspectionEntry || !hasAnyInspectionValue || isInspectionMutationPending}
                 onClick={handleSaveInspectionRecord}
               >
                 {isInspectionMutationPending ? "Saving..." : selectedInspectionRecord ? "Save Changes" : "Save Inspection Record"}
@@ -1747,7 +1837,7 @@ export default function ChecksheetSubmissionDetailPage() {
               <Button
                 variant="outlined"
                 startIcon={<CalendarMonthOutlinedIcon />}
-                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly`)}
+                onClick={() => navigate(`/checksheets/submissions/${submission.id}/monthly?checksheetMode=${checksheetMode}${selectedTemplateId ? `&templateId=${selectedTemplateId}` : ""}`)}
               >
                 Open Monthly Page
               </Button>

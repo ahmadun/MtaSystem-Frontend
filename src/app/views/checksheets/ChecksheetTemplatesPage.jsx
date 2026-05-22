@@ -62,12 +62,14 @@ const CHECKSHEET_MODES = [
 const INSPECTION_ENTRY_MODES = [
   { value: "date", label: "Date" },
   { value: "board", label: "Board Code" },
-  { value: "weekly", label: "Weekly" }
+  { value: "weekly", label: "Weekly" },
+  { value: "free_text", label: "Free Text Options" }
 ];
 
 function formatInspectionEntryMode(value) {
   if (value === "board") return "Board Code";
   if (value === "weekly") return "Weekly";
+  if (value === "free_text") return "Free Text Options";
   return "Date";
 }
 
@@ -112,6 +114,24 @@ function serializeColumnOptions(column) {
     ...baseOptions,
     enableRowSpan: column.enableRowSpan ?? false
   });
+}
+
+function parseInspectionEntryOptions(optionsJson) {
+  if (!optionsJson) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(optionsJson);
+    return Array.isArray(parsed) ? parsed.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function serializeInspectionEntryOptions(options) {
+  const normalized = [...new Set((options ?? []).map((value) => String(value ?? "").trim()).filter(Boolean))];
+  return normalized.length ? JSON.stringify(normalized) : null;
 }
 
 function normalizeColumnType(columnType) {
@@ -307,12 +327,13 @@ function buildInitialForm(template) {
       name: "",
       checksheetMode: "daily",
       inspectionEntryMode: "date",
+      inspectionEntryOptions: [""],
       description: "",
       isActive: true,
       columns,
       items: [createItemFromColumns(columns, 0)],
-      dailyApprovalSteps: [blankDailyApprovalStep(1)],
-      regularApprovalSteps: [blankRegularApprovalStep(1)]
+      dailyApprovalSteps: [],
+      regularApprovalSteps: []
     };
   }
 
@@ -320,6 +341,9 @@ function buildInitialForm(template) {
     name: template.name ?? "",
     checksheetMode: template.checksheetMode ?? "daily",
     inspectionEntryMode: template.inspectionEntryMode ?? "date",
+    inspectionEntryOptions: parseInspectionEntryOptions(template.inspectionEntryOptionsJson).length
+      ? parseInspectionEntryOptions(template.inspectionEntryOptionsJson)
+      : [""],
     description: template.description ?? "",
     isActive: template.isActive ?? true,
     columns: (template.columns ?? []).map((column, index) => ({
@@ -336,18 +360,12 @@ function buildInitialForm(template) {
       valueType: item.valueType ?? "fixed",
       ...item.data
     })),
-    dailyApprovalSteps: (template.dailyApprovalSteps?.length
-      ? template.dailyApprovalSteps
-      : [blankDailyApprovalStep(1)]
-    ).map((step, index) => ({
+    dailyApprovalSteps: (template.dailyApprovalSteps ?? []).map((step, index) => ({
       stepName: step.stepName ?? "",
       stepOrder: index + 1,
       approverUserIds: getApproverUserIds(step)
     })),
-    regularApprovalSteps: (template.regularApprovalSteps?.length
-      ? template.regularApprovalSteps
-      : [blankRegularApprovalStep(1)]
-    ).map((step, index) => ({
+    regularApprovalSteps: (template.regularApprovalSteps ?? []).map((step, index) => ({
       stepName: step.stepName ?? "",
       stepOrder: index + 1,
       approverUserIds: getApproverUserIds(step)
@@ -381,6 +399,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
       name: form.name.trim(),
       checksheetMode: form.checksheetMode,
       inspectionEntryMode: form.inspectionEntryMode,
+      inspectionEntryOptionsJson: form.inspectionEntryMode === "free_text" ? serializeInspectionEntryOptions(form.inspectionEntryOptions) : null,
       description: form.description.trim() || null,
       isActive: form.isActive,
       columns: form.columns.map((column, index) => ({
@@ -429,6 +448,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
     form.checksheetMode &&
     form.columns.length > 0 &&
     form.columns.every((column) => column.columnKey.trim() && column.label.trim()) &&
+    (form.inspectionEntryMode !== "free_text" || form.inspectionEntryOptions.some((option) => option.trim())) &&
     form.items.length > 0;
 
   const formGridSx = {
@@ -488,7 +508,11 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
               select
               label="Inspection Entry"
               value={form.inspectionEntryMode}
-              onChange={(event) => setForm((current) => ({ ...current, inspectionEntryMode: event.target.value }))}
+              onChange={(event) => setForm((current) => ({
+                ...current,
+                inspectionEntryMode: event.target.value,
+                inspectionEntryOptions: event.target.value === "free_text" && !current.inspectionEntryOptions?.length ? [""] : current.inspectionEntryOptions
+              }))}
               sx={{ minWidth: 180 }}
             >
               {INSPECTION_ENTRY_MODES.map((option) => (
@@ -500,6 +524,55 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
               <MenuItem value="inactive">Inactive</MenuItem>
             </TextField>
           </Box>
+
+          {form.inspectionEntryMode === "free_text" && (
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Stack spacing={1.5}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle2">Inspection Entry Options</Typography>
+                  <Button
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={() => setForm((current) => ({ ...current, inspectionEntryOptions: [...(current.inspectionEntryOptions ?? []), ""] }))}
+                  >
+                    Add Option
+                  </Button>
+                </Stack>
+                <Stack spacing={1}>
+                  {(form.inspectionEntryOptions ?? [""]).map((option, optionIndex) => (
+                    <Stack key={`inspection-entry-option-${optionIndex}`} direction="row" spacing={1} alignItems="center">
+                      <TextField
+                        label={`Option ${optionIndex + 1}`}
+                        value={option}
+                        onChange={(event) => {
+                          const nextValue = event.target.value;
+                          setForm((current) => ({
+                            ...current,
+                            inspectionEntryOptions: (current.inspectionEntryOptions ?? [""]).map((currentOption, currentIndex) =>
+                              currentIndex === optionIndex ? nextValue : currentOption
+                            )
+                          }));
+                        }}
+                        size="small"
+                        fullWidth
+                      />
+                      <IconButton
+                        color="error"
+                        onClick={() => setForm((current) => ({
+                          ...current,
+                          inspectionEntryOptions: (current.inspectionEntryOptions ?? [""]).filter((_, currentIndex) => currentIndex !== optionIndex).length
+                            ? (current.inspectionEntryOptions ?? [""]).filter((_, currentIndex) => currentIndex !== optionIndex)
+                            : [""]
+                        }))}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+              </Stack>
+            </Paper>
+          )}
 
           <TextField label="Description" value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} multiline minRows={2} />
 
@@ -683,7 +756,6 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                     />
                     <IconButton
                       color="error"
-                      disabled={activeApprovalSteps.length <= 1}
                       onClick={() =>
                         setForm((current) => ({
                           ...current,
@@ -700,6 +772,13 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                   </Box>
                 </Paper>
               ))}
+              {activeApprovalSteps.length === 0 && (
+                <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    No approval steps configured.
+                  </Typography>
+                </Paper>
+              )}
             </Stack>
           </Box>
         </Stack>
