@@ -123,14 +123,38 @@ function parseInspectionEntryOptions(optionsJson) {
 
   try {
     const parsed = JSON.parse(optionsJson);
-    return Array.isArray(parsed) ? parsed.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+    return Array.isArray(parsed)
+      ? parsed
+        .map((option) => {
+          if (typeof option === "string") {
+            return { label: option.trim(), valueType: "free_text" };
+          }
+
+          return {
+            label: String(option?.label ?? "").trim(),
+            valueType: ITEM_VALUE_TYPES.some((item) => item.value === option?.valueType) ? option.valueType : "free_text"
+          };
+        })
+        .filter((option) => option.label)
+      : [];
   } catch {
     return [];
   }
 }
 
 function serializeInspectionEntryOptions(options) {
-  const normalized = [...new Set((options ?? []).map((value) => String(value ?? "").trim()).filter(Boolean))];
+  const normalized = [];
+  (options ?? []).forEach((option) => {
+    const label = String(option?.label ?? "").trim();
+    if (!label || normalized.some((item) => item.label.toLowerCase() === label.toLowerCase())) {
+      return;
+    }
+
+    normalized.push({
+      label,
+      valueType: ITEM_VALUE_TYPES.some((item) => item.value === option?.valueType) ? option.valueType : "free_text"
+    });
+  });
   return normalized.length ? JSON.stringify(normalized) : null;
 }
 
@@ -327,7 +351,7 @@ function buildInitialForm(template) {
       name: "",
       checksheetMode: "daily",
       inspectionEntryMode: "date",
-      inspectionEntryOptions: [""],
+      inspectionEntryOptions: [{ label: "", valueType: "free_text" }],
       description: "",
       isActive: true,
       columns,
@@ -343,7 +367,7 @@ function buildInitialForm(template) {
     inspectionEntryMode: template.inspectionEntryMode ?? "date",
     inspectionEntryOptions: parseInspectionEntryOptions(template.inspectionEntryOptionsJson).length
       ? parseInspectionEntryOptions(template.inspectionEntryOptionsJson)
-      : [""],
+      : [{ label: "", valueType: "free_text" }],
     description: template.description ?? "",
     isActive: template.isActive ?? true,
     columns: (template.columns ?? []).map((column, index) => ({
@@ -448,7 +472,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
     form.checksheetMode &&
     form.columns.length > 0 &&
     form.columns.every((column) => column.columnKey.trim() && column.label.trim()) &&
-    (form.inspectionEntryMode !== "free_text" || form.inspectionEntryOptions.some((option) => option.trim())) &&
+    (form.inspectionEntryMode !== "free_text" || form.inspectionEntryOptions.some((option) => option.label.trim())) &&
     form.items.length > 0;
 
   const formGridSx = {
@@ -511,7 +535,9 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
               onChange={(event) => setForm((current) => ({
                 ...current,
                 inspectionEntryMode: event.target.value,
-                inspectionEntryOptions: event.target.value === "free_text" && !current.inspectionEntryOptions?.length ? [""] : current.inspectionEntryOptions
+                inspectionEntryOptions: event.target.value === "free_text" && !current.inspectionEntryOptions?.length
+                  ? [{ label: "", valueType: "free_text" }]
+                  : current.inspectionEntryOptions
               }))}
               sx={{ minWidth: 180 }}
             >
@@ -533,36 +559,59 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                   <Button
                     size="small"
                     startIcon={<AddIcon />}
-                    onClick={() => setForm((current) => ({ ...current, inspectionEntryOptions: [...(current.inspectionEntryOptions ?? []), ""] }))}
+                    onClick={() => setForm((current) => ({
+                      ...current,
+                      inspectionEntryOptions: [...(current.inspectionEntryOptions ?? []), { label: "", valueType: "free_text" }]
+                    }))}
                   >
                     Add Option
                   </Button>
                 </Stack>
                 <Stack spacing={1}>
-                  {(form.inspectionEntryOptions ?? [""]).map((option, optionIndex) => (
+                  {(form.inspectionEntryOptions ?? [{ label: "", valueType: "free_text" }]).map((option, optionIndex) => (
                     <Stack key={`inspection-entry-option-${optionIndex}`} direction="row" spacing={1} alignItems="center">
                       <TextField
                         label={`Option ${optionIndex + 1}`}
-                        value={option}
+                        value={option.label}
                         onChange={(event) => {
                           const nextValue = event.target.value;
                           setForm((current) => ({
                             ...current,
-                            inspectionEntryOptions: (current.inspectionEntryOptions ?? [""]).map((currentOption, currentIndex) =>
-                              currentIndex === optionIndex ? nextValue : currentOption
+                            inspectionEntryOptions: (current.inspectionEntryOptions ?? [{ label: "", valueType: "free_text" }]).map((currentOption, currentIndex) =>
+                              currentIndex === optionIndex ? { ...currentOption, label: nextValue } : currentOption
                             )
                           }));
                         }}
                         size="small"
                         fullWidth
                       />
+                      <TextField
+                        select
+                        label="Answer Type"
+                        value={option.valueType ?? "free_text"}
+                        onChange={(event) => {
+                          const nextValueType = event.target.value;
+                          setForm((current) => ({
+                            ...current,
+                            inspectionEntryOptions: (current.inspectionEntryOptions ?? [{ label: "", valueType: "free_text" }]).map((currentOption, currentIndex) =>
+                              currentIndex === optionIndex ? { ...currentOption, valueType: nextValueType } : currentOption
+                            )
+                          }));
+                        }}
+                        size="small"
+                        sx={{ minWidth: 190 }}
+                      >
+                        {ITEM_VALUE_TYPES.map((typeOption) => (
+                          <MenuItem key={typeOption.value} value={typeOption.value}>{typeOption.label}</MenuItem>
+                        ))}
+                      </TextField>
                       <IconButton
                         color="error"
                         onClick={() => setForm((current) => ({
                           ...current,
-                          inspectionEntryOptions: (current.inspectionEntryOptions ?? [""]).filter((_, currentIndex) => currentIndex !== optionIndex).length
-                            ? (current.inspectionEntryOptions ?? [""]).filter((_, currentIndex) => currentIndex !== optionIndex)
-                            : [""]
+                          inspectionEntryOptions: (current.inspectionEntryOptions ?? [{ label: "", valueType: "free_text" }]).filter((_, currentIndex) => currentIndex !== optionIndex).length
+                            ? (current.inspectionEntryOptions ?? [{ label: "", valueType: "free_text" }]).filter((_, currentIndex) => currentIndex !== optionIndex)
+                            : [{ label: "", valueType: "free_text" }]
                         }))}
                       >
                         <DeleteOutlineIcon fontSize="small" />

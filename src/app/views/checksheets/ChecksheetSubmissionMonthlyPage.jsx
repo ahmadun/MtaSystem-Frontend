@@ -381,6 +381,32 @@ function getRawEntryCode(entry) {
   ).trim();
 }
 
+function parseInspectionEntryOptions(optionsJson) {
+  if (!optionsJson) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(optionsJson);
+    return Array.isArray(parsed)
+      ? parsed
+        .map((option) => {
+          if (typeof option === "string") {
+            return { label: option.trim(), valueType: "free_text" };
+          }
+
+          return {
+            label: String(option?.label ?? "").trim(),
+            valueType: ["fixed", "free_text", "number", "jig_no_check"].includes(option?.valueType) ? option.valueType : "free_text"
+          };
+        })
+        .filter((option) => option.label)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 function getEntryColumnKey(entry, inspectionEntryMode = "date") {
   if (inspectionEntryMode === "board" || inspectionEntryMode === "free_text") {
     const boardCode = getBoardCodeFromEntry(entry);
@@ -447,16 +473,19 @@ function getRecordIdForColumn(items, columnKey, inspectionEntryMode = "date") {
   return null;
 }
 
-function getEntryColumnData(entry, inspectionEntryMode) {
+function getEntryColumnData(entry, inspectionEntryMode, inspectionEntryOptionMap = new Map()) {
   const key = getEntryColumnKey(entry, inspectionEntryMode);
   if (!key) {
     return null;
   }
 
+  const label = getEntryColumnLabel(entry, inspectionEntryMode);
+  const option = inspectionEntryOptionMap.get(label.toLowerCase());
   return {
     key,
-    label: getEntryColumnLabel(entry, inspectionEntryMode),
+    label,
     boardCode: inspectionEntryMode === "board" ? getBoardCodeFromEntry(entry) : inspectionEntryMode === "free_text" ? getRawEntryCode(entry) : "",
+    valueType: inspectionEntryMode === "free_text" ? option?.valueType ?? "free_text" : null,
     inspectionDate: entry?.inspectionDate ?? null
   };
 }
@@ -467,9 +496,12 @@ function buildEntryColumns(view, inspectionEntryMode, filledOnly = false) {
   }
 
   const columnMap = new Map();
+  const inspectionEntryOptionMap = new Map(
+    parseInspectionEntryOptions(view?.inspectionEntryOptionsJson).map((option) => [option.label.toLowerCase(), option])
+  );
 
   (view?.daySummaries ?? []).forEach((entry) => {
-    const column = getEntryColumnData(entry, inspectionEntryMode);
+    const column = getEntryColumnData(entry, inspectionEntryMode, inspectionEntryOptionMap);
     if (!column || columnMap.has(column.key)) {
       return;
     }
@@ -479,7 +511,7 @@ function buildEntryColumns(view, inspectionEntryMode, filledOnly = false) {
 
   (view?.items ?? []).forEach((item) => {
     (item?.days ?? []).forEach((entry) => {
-      const column = getEntryColumnData(entry, inspectionEntryMode);
+      const column = getEntryColumnData(entry, inspectionEntryMode, inspectionEntryOptionMap);
       if (!column || columnMap.has(column.key)) {
         return;
       }
@@ -1354,7 +1386,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     const cell = getCellForColumn(item, entry.key, modeInspectionEntryMode);
                     const palette = getResultColor(cell?.resultValue);
                     const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
-                    const jigNoCheckLines = (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE
+                    const effectiveValueType = modeInspectionEntryMode === "free_text" ? entry.valueType ?? "free_text" : item.valueType ?? "fixed";
+                    const jigNoCheckLines = effectiveValueType === JIG_NO_CHECK_VALUE_TYPE
                       ? formatJigNoCheckValue(cell?.resultValue)
                       : [];
                     return (
@@ -1922,7 +1955,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                               );
                             })}
                             <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
-                              {(item.valueType ?? "fixed") === "fixed" ? (
+                              {((inspectionEntryMode === "free_text" ? selectedEntry?.valueType ?? "free_text" : item.valueType ?? "fixed")) === "fixed" ? (
                                 <ButtonGroup
                                   size="small"
                                   disabled={!isDraft || isInspectionMutationPending}
@@ -1948,7 +1981,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                     );
                                   })}
                                 </ButtonGroup>
-                              ) : (item.valueType ?? "fixed") === "number" ? (
+                              ) : ((inspectionEntryMode === "free_text" ? selectedEntry?.valueType ?? "free_text" : item.valueType ?? "fixed")) === "number" ? (
                                 <TextField
                                   value={entryValues[item.templateItemId]?.resultValue ?? ""}
                                   onChange={(event) => handleInspectionValueChange(item.templateItemId, { resultValue: sanitizeNumberInput(event.target.value) })}
@@ -1958,7 +1991,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                   disabled={!isDraft || isInspectionMutationPending}
                                   inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
                                 />
-                              ) : (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE ? (
+                              ) : ((inspectionEntryMode === "free_text" ? selectedEntry?.valueType ?? "free_text" : item.valueType ?? "fixed")) === JIG_NO_CHECK_VALUE_TYPE ? (
                                 (() => {
                                   const jigNoCheckLines = formatJigNoCheckValue(entryValues[item.templateItemId]?.resultValue ?? "");
                                   return (

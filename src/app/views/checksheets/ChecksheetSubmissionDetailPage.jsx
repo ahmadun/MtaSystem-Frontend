@@ -377,7 +377,20 @@ function parseInspectionEntryOptions(optionsJson) {
 
   try {
     const parsed = JSON.parse(optionsJson);
-    return Array.isArray(parsed) ? parsed.map((value) => String(value ?? "").trim()).filter(Boolean) : [];
+    return Array.isArray(parsed)
+      ? parsed
+        .map((option) => {
+          if (typeof option === "string") {
+            return { label: option.trim(), valueType: "free_text" };
+          }
+
+          return {
+            label: String(option?.label ?? "").trim(),
+            valueType: ["fixed", "free_text", "number", "jig_no_check"].includes(option?.valueType) ? option.valueType : "free_text"
+          };
+        })
+        .filter((option) => option.label)
+      : [];
   } catch {
     return [];
   }
@@ -835,6 +848,10 @@ export default function ChecksheetSubmissionDetailPage() {
     () => parseInspectionEntryOptions(submission?.template?.inspectionEntryOptionsJson),
     [submission?.template?.inspectionEntryOptionsJson]
   );
+  const selectedInspectionEntryOption = useMemo(
+    () => freeTextEntryOptions.find((option) => option.label === boardCode) ?? null,
+    [boardCode, freeTextEntryOptions]
+  );
   const machineModes = useMemo(() => {
     const modes = currentMachine?.modes?.length ? currentMachine.modes : [submission?.checksheetMode ?? "daily"];
     return [...new Set(modes.map((mode) => normalizeChecksheetMode(mode)).filter(Boolean))];
@@ -912,8 +929,8 @@ export default function ChecksheetSubmissionDetailPage() {
     if (inspectionEntryMode === "free_text") {
       const latestEntry = getRecordBoardCode(latestInspectionRecord);
       setBoardCode(
-        freeTextEntryOptions.find((option) => normalizeBoardCode(option) === latestEntry) ??
-        freeTextEntryOptions[0] ??
+        freeTextEntryOptions.find((option) => normalizeBoardCode(option.label) === latestEntry)?.label ??
+        freeTextEntryOptions[0]?.label ??
         ""
       );
       setInspectionDate(submission?.inspectionDate ?? latestInspectionRecord?.inspectionDate ?? "");
@@ -967,6 +984,10 @@ export default function ChecksheetSubmissionDetailPage() {
     [entryValues]
   );
   const hasRequiredInspectionEntry = inspectionEntryMode !== "free_text" || !!boardCode.trim();
+  const getEffectiveValueType = (item) =>
+    inspectionEntryMode === "free_text"
+      ? selectedInspectionEntryOption?.valueType ?? "free_text"
+      : item.valueType ?? "fixed";
   const activeRepairFormDefinition = useMemo(
     () => availableRepairForms.find((repairForm) => repairForm.formKey === activeRepairDialogKey) ?? null,
     [activeRepairDialogKey, availableRepairForms]
@@ -1509,7 +1530,7 @@ export default function ChecksheetSubmissionDetailPage() {
                     sx={{ flex: 1, minWidth: 0 }}
                   >
                     {freeTextEntryOptions.map((option) => (
-                      <MenuItem key={option} value={option}>{option}</MenuItem>
+                      <MenuItem key={option.label} value={option.label}>{option.label}</MenuItem>
                     ))}
                   </TextField>
                 ) : inspectionEntryMode === "weekly" ? (
@@ -1614,7 +1635,9 @@ export default function ChecksheetSubmissionDetailPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {templateItems.map((item, rowIndex) => (
+                    {templateItems.map((item, rowIndex) => {
+                      const effectiveValueType = getEffectiveValueType(item);
+                      return (
                       <TableRow key={item.id} hover>
                         {templateColumns.map((column, columnIndex) => {
                           const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
@@ -1644,7 +1667,7 @@ export default function ChecksheetSubmissionDetailPage() {
                           );
                         })}
                         <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
-                          {(item.valueType ?? "fixed") === "fixed" ? (
+                          {effectiveValueType === "fixed" ? (
                             <ButtonGroup
                               size="small"
                               disabled={!isDraft || isInspectionMutationPending}
@@ -1670,7 +1693,7 @@ export default function ChecksheetSubmissionDetailPage() {
                                 );
                               })}
                             </ButtonGroup>
-                          ) : (item.valueType ?? "fixed") === "number" ? (
+                          ) : effectiveValueType === "number" ? (
                             <TextField
                               value={getEntryValue(item.id, "resultValue")}
                               onChange={(event) => handleInspectionValueChange(item.id, { resultValue: sanitizeNumberInput(event.target.value) })}
@@ -1680,7 +1703,7 @@ export default function ChecksheetSubmissionDetailPage() {
                               disabled={!isDraft || isInspectionMutationPending}
                               inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
                             />
-                          ) : (item.valueType ?? "fixed") === JIG_NO_CHECK_VALUE_TYPE ? (
+                          ) : effectiveValueType === JIG_NO_CHECK_VALUE_TYPE ? (
                             (() => {
                               const jigNoCheckLines = formatJigNoCheckValue(getEntryValue(item.id, "resultValue"));
                               return (
@@ -1733,7 +1756,8 @@ export default function ChecksheetSubmissionDetailPage() {
                           />
                         </TableCell>
                       </TableRow>
-                    ))}
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>
