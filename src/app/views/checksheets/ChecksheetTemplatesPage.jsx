@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import AddIcon from "@mui/icons-material/Add";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { authRoles } from "app/auth/authRoles";
@@ -36,12 +37,14 @@ import {
   useChecksheetTemplates,
   useCreateChecksheetTemplate,
   useDeleteChecksheetTemplate,
+  useUploadChecksheetTemplateImage,
   useUpdateChecksheetTemplate
 } from "app/hooks/useChecksheets";
 
 const COLUMN_TYPES = [
   { value: "text", label: "Text" },
-  { value: "textarea", label: "Textarea" }
+  { value: "textarea", label: "Textarea" },
+  { value: "image", label: "Image" }
 ];
 
 const ITEM_VALUE_TYPES = [
@@ -134,6 +137,133 @@ function createItemFromColumns(columns, sortOrder) {
     next[column.columnKey] = column.columnKey === "itemNo" ? String(sortOrder + 1) : index === 1 ? "" : "";
   });
   return next;
+}
+
+function getColumnImageOptions(items, columnKey) {
+  return [
+    ...new Set(
+      items
+        .map((item) => String(item[columnKey] ?? "").trim())
+        .filter(Boolean)
+    )
+  ];
+}
+
+function TemplateItemField({ column, item, itemIndex, items, setForm }) {
+  const uploadMutation = useUploadChecksheetTemplateImage();
+  const value = item[column.columnKey] ?? "";
+
+  if (column.columnType !== "image") {
+    return (
+      <TextField
+        label={column.label}
+        multiline={column.columnType === "textarea"}
+        minRows={column.columnType === "textarea" ? 2 : undefined}
+        value={value}
+        onChange={(event) =>
+          setForm((current) => ({
+            ...current,
+            items: current.items.map((currentItem, currentIndex) =>
+              currentIndex === itemIndex ? { ...currentItem, [column.columnKey]: event.target.value } : currentItem
+            )
+          }))
+        }
+        fullWidth
+      />
+    );
+  }
+
+  const existingImages = getColumnImageOptions(items, column.columnKey);
+
+  const updateValue = (nextValue) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((currentItem, currentIndex) =>
+        currentIndex === itemIndex ? { ...currentItem, [column.columnKey]: nextValue } : currentItem
+      )
+    }));
+  };
+
+  const handleImageChange = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const result = await uploadMutation.mutateAsync(file);
+    updateValue(result?.data?.url ?? "");
+  };
+
+  return (
+    <Stack spacing={1}>
+      <Typography variant="caption" color="text.secondary">
+        {column.label}
+      </Typography>
+      {value && (
+        <Box
+          component="img"
+          src={value}
+          alt={column.label}
+          sx={{
+            width: "100%",
+            maxHeight: 180,
+            objectFit: "contain",
+            border: 1,
+            borderColor: "divider",
+            borderRadius: 1,
+            bgcolor: "background.default"
+          }}
+        />
+      )}
+      <Stack direction="row" spacing={1} alignItems="center">
+        <Button component="label" variant="outlined" size="small" startIcon={<CloudUploadIcon />} disabled={uploadMutation.isPending}>
+          {uploadMutation.isPending ? "Uploading..." : value ? "Replace Image" : "Upload Image"}
+          <input type="file" accept="image/*" hidden onChange={handleImageChange} />
+        </Button>
+        <TextField
+          select
+          size="small"
+          label="Use Existing"
+          value=""
+          onChange={(event) => updateValue(event.target.value)}
+          disabled={uploadMutation.isPending || existingImages.length === 0}
+          sx={{ minWidth: 180 }}
+        >
+          <MenuItem value="" disabled>
+            Select image
+          </MenuItem>
+          {existingImages.map((imageUrl, imageIndex) => (
+            <MenuItem key={imageUrl} value={imageUrl}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                <Box
+                  component="img"
+                  src={imageUrl}
+                  alt={`Existing ${imageIndex + 1}`}
+                  sx={{
+                    width: 48,
+                    height: 36,
+                    objectFit: "contain",
+                    border: 1,
+                    borderColor: "divider",
+                    borderRadius: 1,
+                    bgcolor: "background.default",
+                    flexShrink: 0
+                  }}
+                />
+                <Typography variant="body2" noWrap>
+                  Image {imageIndex + 1}
+                </Typography>
+              </Stack>
+            </MenuItem>
+          ))}
+        </TextField>
+        {value && (
+          <Button size="small" color="error" onClick={() => updateValue("")} disabled={uploadMutation.isPending}>
+            Remove
+          </Button>
+        )}
+      </Stack>
+    </Stack>
+  );
 }
 
 function blankDailyApprovalStep(stepOrder) {
@@ -476,19 +606,13 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                     </Box>
                     <Box sx={itemFieldsGridSx}>
                       {form.columns.map((column) => (
-                        <TextField
+                        <TemplateItemField
                           key={`${column.columnKey}-${index}`}
-                          label={column.label}
-                          multiline={column.columnType === "textarea"}
-                          minRows={column.columnType === "textarea" ? 2 : undefined}
-                          value={item[column.columnKey] ?? ""}
-                          onChange={(event) =>
-                            setForm((current) => ({
-                              ...current,
-                              items: current.items.map((currentItem, itemIndex) => itemIndex === index ? { ...currentItem, [column.columnKey]: event.target.value } : currentItem)
-                            }))
-                          }
-                          fullWidth
+                          column={column}
+                          item={item}
+                          itemIndex={index}
+                          items={form.items}
+                          setForm={setForm}
                         />
                       ))}
                     </Box>

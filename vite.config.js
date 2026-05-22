@@ -26,6 +26,12 @@ export default defineConfig({
     headers: {
       "Cross-Origin-Embedder-Policy": "require-corp",
       "Cross-Origin-Opener-Policy": "same-origin"
+    },
+    proxy: {
+      "/uploads": {
+        target: "http://localhost:5033",
+        changeOrigin: true
+      }
     }
   }
 });

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSnackbar } from "notistack";
 import {
   cancelApprovalRequest,
+  appendChecksheetTemplateItems,
   createChecksheetArea,
   createChecksheetMaster,
   createChecksheetGroup,
@@ -70,7 +71,8 @@ import {
   updateInspectionRecord,
   updateApprovalTemplate,
   patchApprovalTemplate,
-  updateRepairRecord
+  updateRepairRecord,
+  uploadChecksheetTemplateImage
 } from "@api/checksheets";
 
 export const CHECKSHEET_KEYS = {
@@ -355,8 +357,26 @@ export const useCreateChecksheetTemplate = () =>
 export const useUpdateChecksheetTemplate = (id) =>
   useSnackbarMutation((data) => updateChecksheetTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase, CHECKSHEET_KEYS.template(id)], "Checksheet template updated successfully");
 
+export const useAppendChecksheetTemplateItems = (id) =>
+  useSnackbarMutation(
+    (data) => appendChecksheetTemplateItems(id, data),
+    [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase, CHECKSHEET_KEYS.template(id)],
+    "Template rows appended successfully"
+  );
+
 export const useDeleteChecksheetTemplate = () =>
   useSnackbarMutation(deleteChecksheetTemplate, [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase], "Checksheet template deleted successfully");
+
+export const useUploadChecksheetTemplateImage = () => {
+  const { enqueueSnackbar } = useSnackbar();
+
+  return useMutation({
+    mutationFn: uploadChecksheetTemplateImage,
+    onError: (error) => {
+      enqueueSnackbar(error.message || "Image upload failed", { variant: "error" });
+    }
+  });
+};
 
 export const useChecksheetSubmissions = (params = {}, options = {}) =>
   useQuery({

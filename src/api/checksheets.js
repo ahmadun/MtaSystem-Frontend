@@ -202,8 +202,23 @@ export const updateChecksheetTemplate = async (id, data) => {
   return response.data;
 };
 
+export const appendChecksheetTemplateItems = async (id, data) => {
+  const response = await apiClient.post(`/checksheet-templates/${id}/items/append`, data);
+  return response.data;
+};
+
 export const deleteChecksheetTemplate = async (id) => {
   const response = await apiClient.delete(`/checksheet-templates/${id}`);
+  return response.data;
+};
+
+export const uploadChecksheetTemplateImage = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await apiClient.post("/checksheet-templates/uploads/images", formData, {
+    headers: { "Content-Type": "multipart/form-data" }
+  });
   return response.data;
 };
 

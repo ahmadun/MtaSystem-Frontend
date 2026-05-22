@@ -34,6 +34,7 @@ import SendOutlinedIcon from "@mui/icons-material/SendOutlined";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFnsV3";
 import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { ConfirmationDialog } from "app/components";
+import { getChecksheetSubmissions } from "@api/checksheets";
 import useAuth from "app/hooks/useAuth";
 import {
   useApproveDailyInspectionStep,
@@ -41,8 +42,10 @@ import {
   useApprovalRequest,
   useApprovalTemplates,
   useChecksheetMachines,
+  useChecksheetMasters,
   useChecksheetSubmission,
   useChecksheetSubmissionMonthlyView,
+  useCreateChecksheetSubmission,
   useCreateInspectionRecord,
   useCreateRepairRecord,
   useDeleteInspectionRecord,
@@ -59,6 +62,89 @@ const FIXED_OPTIONS = ["OK", "NG", "FIX"];
 const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
+
+function getImageUrl(value) {
+  if (!value) return "";
+
+  if (typeof value === "object") {
+    return getImageUrl(value.url ?? value.relativeUrl ?? value.path ?? value.fileUrl);
+  }
+
+  const rawValue = String(value).trim().replace(/^["']|["']$/g, "");
+  if (!rawValue) {
+    return "";
+  }
+
+  if (rawValue.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawValue);
+      return getImageUrl(parsed);
+    } catch {
+      return "";
+    }
+  }
+
+  if (/^(data:|blob:)/i.test(rawValue)) {
+    return rawValue;
+  }
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    try {
+      const parsedUrl = new URL(rawValue);
+      return getImageUrl(`${parsedUrl.pathname}${parsedUrl.search}`);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  const normalizedPath = rawValue
+    .replace(/\\/g, "/")
+    .replace(/^\/api\/uploads\//, "/uploads/")
+    .replace(/^api\/uploads\//, "uploads/");
+
+  if (normalizedPath.startsWith("/uploads/")) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath.startsWith("uploads/")) {
+    return `/${normalizedPath}`;
+  }
+
+  return normalizedPath;
+}
+
+function isImageCellValue(value) {
+  const url = getImageUrl(value);
+  return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
+}
+
+function TemplateItemCellContent({ column, value }) {
+  if (column.columnType !== "image" && !isImageCellValue(value)) {
+    return value || "-";
+  }
+
+
+  const imageUrl = getImageUrl(value);
+  if (!imageUrl) {
+    return "-";
+  }
+
+  return (
+    <Box
+      component="img"
+      src={imageUrl}
+      alt={column.label}
+      sx={{
+        display: "block",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        bgcolor: "background.default"
+      }}
+    />
+  );
+}
+
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
 }
@@ -216,6 +302,22 @@ function formatMonthPeriod(dateValue) {
   }).format(parsedDate);
 }
 
+function getMonthRange(dateValue) {
+  if (!dateValue) {
+    return { from: undefined, to: undefined };
+  }
+
+  const [year, month] = String(dateValue).slice(0, 7).split("-").map(Number);
+  if (!year || !month) {
+    return { from: undefined, to: undefined };
+  }
+
+  const from = `${year}-${String(month).padStart(2, "0")}-01`;
+  const toDate = new Date(year, month, 0);
+  const to = `${toDate.getFullYear()}-${String(toDate.getMonth() + 1).padStart(2, "0")}-${String(toDate.getDate()).padStart(2, "0")}`;
+  return { from, to };
+}
+
 function normalizeChecksheetMode(mode, fallback = "") {
   const normalizedMode = String(mode || "").toLowerCase().trim();
 
@@ -228,6 +330,32 @@ function normalizeChecksheetMode(mode, fallback = "") {
   }
 
   return fallback ? normalizeChecksheetMode(fallback, "") : normalizedMode;
+}
+
+function getLatestSubmission(submissions) {
+  return [...(submissions ?? [])].sort((left, right) => {
+    const leftDate = left.inspectionDate ? new Date(left.inspectionDate).getTime() : 0;
+    const rightDate = right.inspectionDate ? new Date(right.inspectionDate).getTime() : 0;
+    return rightDate - leftDate || Number(right.id ?? 0) - Number(left.id ?? 0);
+  })[0] ?? null;
+}
+
+async function findExistingMonthlySubmissions(machineCode, inspectionDate) {
+  const { from, to } = getMonthRange(inspectionDate);
+  const response = await getChecksheetSubmissions({
+    page: 1,
+    pageSize: 100,
+    machineCode,
+    inspectionDateFrom: from,
+    inspectionDateTo: to
+  });
+  const responseItems = response?.items ?? response?.data?.items ?? [];
+  const requestedMonth = String(inspectionDate ?? "").slice(0, 7);
+
+  return responseItems.filter((item) =>
+    item.machineCode === machineCode &&
+    String(item.inspectionDate ?? "").slice(0, 7) === requestedMonth
+  );
 }
 
 function mapRecordTypeToUi(recordType) {
@@ -527,7 +655,9 @@ export default function ChecksheetSubmissionDetailPage() {
   });
   const { data: approvalTemplates } = useApprovalTemplates({ page: 1, pageSize: 100, isActive: true });
   const createInspectionMutation = useCreateInspectionRecord(submissionId);
+  const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: machinesPage } = useChecksheetMachines({ page: 1, pageSize: 100 });
+  const createSubmissionMutation = useCreateChecksheetSubmission();
   const updateSubmissionMutation = useUpdateChecksheetSubmission(submissionId);
   const deleteSubmissionMutation = useDeleteChecksheetSubmission();
   const createRepairMutation = useCreateRepairRecord(submissionId);
@@ -557,6 +687,8 @@ export default function ChecksheetSubmissionDetailPage() {
   const [repairApprovalTarget, setRepairApprovalTarget] = useState(null);
   const [repairApprovalCancelTarget, setRepairApprovalCancelTarget] = useState(null);
   const [cancelSubmissionOpen, setCancelSubmissionOpen] = useState(false);
+  const [standNavigationTarget, setStandNavigationTarget] = useState(null);
+  const [standNavigationPendingMachineCode, setStandNavigationPendingMachineCode] = useState("");
 
   const inspectionRecords = submission?.inspectionRecords ?? [];
   const latestInspectionRecord = useMemo(
@@ -634,8 +766,12 @@ export default function ChecksheetSubmissionDetailPage() {
     !!currentApprovalRequestId &&
     ["submitted", "approved", "rejected"].includes(submission?.status) &&
     (isOwner || hasRespondedToCurrentApprovalRequest);
-  const machines = useMemo(() => machinesPage?.items ?? [], [machinesPage?.items]);
+  const machines = useMemo(() => machinesPage?.items ?? machinesPage ?? [], [machinesPage]);
   const currentMachine = machines.find((item) => item.machineCode === submission?.machineCode);
+  const currentMaster = checksheetMasters.find((item) =>
+    Number(item.id) === Number(submission?.checksheetMasterId ?? currentMachine?.checksheetMasterId)
+  );
+  const useStandNoNavigation = !!currentMaster?.useStandNo;
   const multiProductNo = submission?.multiProductNo || currentMachine?.multiProductNo || "-";
   const processName = submission?.processName || currentMachine?.processName || "-";
   const checksheetName = submission?.checksheetName || currentMachine?.checksheetName || "-";
@@ -644,6 +780,31 @@ export default function ChecksheetSubmissionDetailPage() {
     [currentMachine?.machineCodes, submission?.machineCodes]
   );
   const machineEntryDetails = getMachineEntryDetails(submission, currentMachine);
+  const standNavigationOptions = useMemo(
+    () => {
+      if (!useStandNoNavigation || !submission) {
+        return [];
+      }
+
+      const masterId = Number(submission.checksheetMasterId ?? currentMachine?.checksheetMasterId);
+      const lineCode = submission.lineCode ?? currentMachine?.lineCode;
+      const processCode = submission.processCode ?? currentMachine?.processCode;
+
+      return machines
+        .filter((machine) =>
+          machine.isActive !== false &&
+          String(machine.standNo ?? "").trim() &&
+          Number(machine.checksheetMasterId) === masterId &&
+          String(machine.lineCode ?? "") === String(lineCode ?? "") &&
+          String(machine.processCode ?? "") === String(processCode ?? "")
+        )
+        .sort((left, right) =>
+          String(left.standNo ?? "").localeCompare(String(right.standNo ?? ""), undefined, { numeric: true, sensitivity: "base" }) ||
+          String(left.machineCode ?? "").localeCompare(String(right.machineCode ?? ""))
+        );
+    },
+    [currentMachine?.checksheetMasterId, currentMachine?.lineCode, currentMachine?.processCode, machines, submission, useStandNoNavigation]
+  );
   const weeklyEntryOptions = useMemo(
     () => getWeeklyEntryOptions(inspectionDate || latestInspectionRecord?.inspectionDate || submission?.inspectionDate),
     [inspectionDate, latestInspectionRecord?.inspectionDate, submission?.inspectionDate]
@@ -982,6 +1143,76 @@ export default function ChecksheetSubmissionDetailPage() {
       .every((entry) => currentDaySummary.approvals?.some((approval) => approval.stepId === entry.id));
   };
 
+  const headerDetails = [
+    { label: "Month Period", value: formatMonthPeriod(submission.inspectionDate) },
+    { label: "Shift", value: submission.shift },
+    { label: "Group", value: submission.groupCodes?.join(", ") || "-" },
+    { label: "Process", value: processName },
+    { label: "Checksheet", value: checksheetName },
+    ...machineEntryDetails
+  ];
+
+  const resolveCreateSubmissionGroupCodes = (machine) => {
+    const currentGroupCodes = submission.groupCodes ?? [];
+    const machineGroupCodes = machine?.groupCodes ?? [];
+    const matchingGroup = currentGroupCodes.find((groupCode) => machineGroupCodes.includes(groupCode));
+
+    if (matchingGroup) {
+      return [matchingGroup];
+    }
+
+    if (machineGroupCodes.length === 1) {
+      return [machineGroupCodes[0]];
+    }
+
+    return currentGroupCodes.length ? [currentGroupCodes[0]] : [];
+  };
+
+  const handleStandNavigationChange = async (machineCode) => {
+    const targetMachine = standNavigationOptions.find((machine) => machine.machineCode === machineCode);
+    if (!targetMachine || targetMachine.machineCode === submission.machineCode) {
+      return;
+    }
+
+    setStandNavigationPendingMachineCode(machineCode);
+    try {
+      const existingSubmissions = await findExistingMonthlySubmissions(targetMachine.machineCode, submission.inspectionDate);
+      const latestSubmission = getLatestSubmission(existingSubmissions);
+
+      if (latestSubmission?.id) {
+        navigate(`/checksheets/submissions/${latestSubmission.id}`);
+        return;
+      }
+
+      setStandNavigationTarget(targetMachine);
+    } finally {
+      setStandNavigationPendingMachineCode("");
+    }
+  };
+
+  const handleCreateStandSubmission = async () => {
+    if (!standNavigationTarget) {
+      return;
+    }
+
+    const targetModes = standNavigationTarget.modes ?? [];
+    const targetMode = targetModes.includes(checksheetMode)
+      ? checksheetMode
+      : normalizeChecksheetMode(targetModes[0] ?? checksheetMode, checksheetMode);
+    const response = await createSubmissionMutation.mutateAsync({
+      machineCode: standNavigationTarget.machineCode,
+      checksheetMode: targetMode,
+      inspectionDate: submission.inspectionDate,
+      shift: submission.shift,
+      groupCodes: resolveCreateSubmissionGroupCodes(standNavigationTarget)
+    });
+
+    setStandNavigationTarget(null);
+    if (response?.data?.id) {
+      navigate(`/checksheets/submissions/${response.data.id}`);
+    }
+  };
+
   return (
     <LocalizationProvider dateAdapter={AdapterDateFns}>
       <Box sx={{ p: 3 }}>
@@ -1003,22 +1234,52 @@ export default function ChecksheetSubmissionDetailPage() {
               </Stack>
             </Stack>
 
-            <Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ mt: 2 }} flexWrap="wrap">
-              <Typography variant="body2"><strong>Month Period:</strong> {formatMonthPeriod(submission.inspectionDate)}</Typography>
-              <Typography variant="body2"><strong>Shift:</strong> {submission.shift}</Typography>
-              <Typography variant="body2"><strong>Group:</strong> {submission.groupCodes?.join(", ") || "-"}</Typography>
-              <Typography variant="body2"><strong>Process:</strong> {processName}</Typography>
-              <Typography variant="body2"><strong>Checksheet:</strong> {checksheetName}</Typography>
-            </Stack>
-            {machineEntryDetails.length > 0 && (
-              <Stack direction={{ xs: "column", md: "row" }} spacing={3} sx={{ mt: 1 }} flexWrap="wrap">
-                {machineEntryDetails.map((detail) => (
-                  <Typography key={detail.label} variant="body2">
-                    <strong>{detail.label}:</strong> {detail.value}
-                  </Typography>
-                ))}
-              </Stack>
-            )}
+            <Box
+              sx={{
+                mt: 2.5,
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "repeat(2, minmax(0, 1fr))",
+                  lg: "repeat(3, minmax(0, 1fr))"
+                },
+                columnGap: 3,
+                rowGap: 1.75,
+                py: 0.5
+              }}
+            >
+              {headerDetails.map((detail) => {
+                const canNavigateStand = detail.label === "Stand No." && useStandNoNavigation && standNavigationOptions.length > 0;
+
+                return (
+                  <Box key={detail.label} sx={{ minWidth: 0 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5, fontWeight: 600 }}>
+                      {canNavigateStand ? "Stand No." : detail.label}
+                    </Typography>
+                    {canNavigateStand ? (
+                      <TextField
+                        select
+                        size="small"
+                        value={submission.machineCode}
+                        onChange={(event) => handleStandNavigationChange(event.target.value)}
+                        disabled={!!standNavigationPendingMachineCode || createSubmissionMutation.isPending}
+                        fullWidth
+                      >
+                        {standNavigationOptions.map((machine) => (
+                          <MenuItem key={machine.machineCode} value={machine.machineCode}>
+                            {machine.standNo}
+                          </MenuItem>
+                        ))}
+                      </TextField>
+                    ) : (
+                      <Typography variant="body2" fontWeight={600} sx={{ overflowWrap: "anywhere" }}>
+                        {detail.value || "-"}
+                      </Typography>
+                    )}
+                  </Box>
+                );
+              })}
+            </Box>
 
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 2 }} alignItems={{ md: "center" }}>
               <Stack spacing={0.5}>
@@ -1085,6 +1346,15 @@ export default function ChecksheetSubmissionDetailPage() {
               >
                 Open Monthly Detail
               </Button>
+              {isDraft && isOwner && (
+                <Button
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => navigate(`/checksheets/submissions/${submission.id}/template-items`)}
+                >
+                  Add Template Rows
+                </Button>
+              )}
               {isDraft && isOwner && (
                 <Button
                   color="error"
@@ -1213,11 +1483,11 @@ export default function ChecksheetSubmissionDetailPage() {
                   size="small"
                   sx={{
                     minWidth: Math.max(860, templateColumns.length * 180 + 460),
-                    tableLayout: "fixed",
+                    tableLayout: "auto",
                     "& .MuiTableCell-root": {
                       borderRight: 1,
                       borderColor: "divider",
-                      verticalAlign: "top",
+                      verticalAlign: "middle",
                       whiteSpace: "normal",
                       overflowWrap: "normal",
                       wordBreak: "normal"
@@ -1239,8 +1509,10 @@ export default function ChecksheetSubmissionDetailPage() {
                         <TableCell
                           key={column.id ?? column.columnKey}
                           sx={{
-                            width: column.columnKey === "itemNo" ? 90 : 180,
-                            minWidth: column.columnKey === "itemNo" ? 90 : 180,
+                            width: column.columnType === "image" ? "auto" : column.columnKey === "itemNo" ? 90 : 180,
+                            minWidth: column.columnType === "image" ? "max-content" : column.columnKey === "itemNo" ? 90 : 180,
+                            maxWidth: column.columnType === "image" ? "none" : undefined,
+                            whiteSpace: column.columnType === "image" ? "nowrap" : undefined,
                             pl: columnIndex === 0 ? 3 : 2
                           }}
                         >
@@ -1269,14 +1541,15 @@ export default function ChecksheetSubmissionDetailPage() {
                               sx={{
                                 pl: columnIndex === 0 ? 3 : 2,
                                 verticalAlign: "middle",
-                                whiteSpace: "normal",
                                 overflowWrap: "normal",
                                 wordBreak: "normal",
-                                width: column.columnKey === "itemNo" ? 90 : 180,
-                                minWidth: column.columnKey === "itemNo" ? 90 : 180
+                                width: column.columnType === "image" ? "auto" : column.columnKey === "itemNo" ? 90 : 180,
+                                minWidth: column.columnType === "image" ? "max-content" : column.columnKey === "itemNo" ? 90 : 180,
+                                maxWidth: column.columnType === "image" ? "none" : undefined,
+                                whiteSpace: column.columnType === "image" ? "nowrap" : "normal"
                               }}
                             >
-                              {item.data?.[column.columnKey] || "-"}
+                              <TemplateItemCellContent column={column} value={item.data?.[column.columnKey]} />
                             </TableCell>
                           );
                         })}
@@ -1691,6 +1964,45 @@ export default function ChecksheetSubmissionDetailPage() {
             </Stack>
           </Paper>
         </Stack>
+
+        <Dialog
+          open={!!standNavigationTarget}
+          onClose={createSubmissionMutation.isPending ? undefined : () => setStandNavigationTarget(null)}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Create Checksheet Transaction</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              <Alert severity="info">
+                No transaction exists for stand {standNavigationTarget?.standNo || "-"} in {formatMonthPeriod(submission.inspectionDate)}.
+              </Alert>
+              <Stack spacing={0.5}>
+                <Typography variant="body2">
+                  <strong>Stand No.:</strong> {standNavigationTarget?.standNo || "-"}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Machine Code:</strong> {standNavigationTarget?.machineCode || "-"}
+                </Typography>
+                <Typography variant="body2">
+                  <strong>Line:</strong> {standNavigationTarget?.lineName || submission.lineName || "-"}
+                </Typography>
+              </Stack>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setStandNavigationTarget(null)} disabled={createSubmissionMutation.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              disabled={createSubmissionMutation.isPending || !resolveCreateSubmissionGroupCodes(standNavigationTarget).length}
+              onClick={handleCreateStandSubmission}
+            >
+              {createSubmissionMutation.isPending ? "Creating..." : "Create And Open"}
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <ConfirmationDialog
           open={!!deleteTarget}

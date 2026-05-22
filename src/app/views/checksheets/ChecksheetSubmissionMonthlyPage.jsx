@@ -54,6 +54,88 @@ const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const MONTH_DAY_COLUMN_WIDTH = 64;
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
+
+function getImageUrl(value) {
+  if (!value) return "";
+
+  if (typeof value === "object") {
+    return getImageUrl(value.url ?? value.relativeUrl ?? value.path ?? value.fileUrl);
+  }
+
+  const rawValue = String(value).trim().replace(/^["']|["']$/g, "");
+  if (!rawValue) {
+    return "";
+  }
+
+  if (rawValue.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawValue);
+      return getImageUrl(parsed);
+    } catch {
+      return "";
+    }
+  }
+
+  if (/^(data:|blob:)/i.test(rawValue)) {
+    return rawValue;
+  }
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    try {
+      const parsedUrl = new URL(rawValue);
+      return getImageUrl(`${parsedUrl.pathname}${parsedUrl.search}`);
+    } catch {
+      return rawValue;
+    }
+  }
+
+  const normalizedPath = rawValue
+    .replace(/\\/g, "/")
+    .replace(/^\/api\/uploads\//, "/uploads/")
+    .replace(/^api\/uploads\//, "uploads/");
+
+  if (normalizedPath.startsWith("/uploads/")) {
+    return normalizedPath;
+  }
+
+  if (normalizedPath.startsWith("uploads/")) {
+    return `/${normalizedPath}`;
+  }
+
+  return normalizedPath;
+}
+
+function isImageCellValue(value) {
+  const url = getImageUrl(value);
+  return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
+}
+
+function TemplateItemCellContent({ column, value }) {
+  if (column.columnType !== "image" && !isImageCellValue(value)) {
+    return value || "-";
+  }
+
+  const imageUrl = getImageUrl(value);
+  if (!imageUrl) {
+    return "-";
+  }
+
+  return (
+    <Box
+      component="img"
+      src={imageUrl}
+      alt={column.label}
+      sx={{
+        display: "block",
+        border: 1,
+        borderColor: "divider",
+        borderRadius: 1,
+        bgcolor: "background.default"
+      }}
+    />
+  );
+}
+
 function formatSubmissionStatus(status) {
   return typeof status === "string" ? status.toUpperCase() : "-";
 }
@@ -554,17 +636,19 @@ function renderApprovalChip(person) {
   );
 }
 
-function getMonthlySheetColumnSx(columnKey, columnIndex) {
+function getMonthlySheetColumnSx(column, columnIndex) {
+  const columnKey = column?.key ?? column?.columnKey ?? column;
+  const isImageColumn = column?.columnType === "image";
   const isNumberColumn = columnKey === "itemNo";
   const isLongTextColumn = ["itemName", "method", "criteria", "tujuan", "konten", "item", "metodePengecekan", "penilaian"].includes(columnKey);
 
   return {
-    width: isNumberColumn ? 72 : isLongTextColumn ? 220 : 140,
-    minWidth: isNumberColumn ? 72 : isLongTextColumn ? 160 : 120,
-    maxWidth: isNumberColumn ? 72 : isLongTextColumn ? 220 : 160,
+    width: isImageColumn ? "auto" : isNumberColumn ? 72 : isLongTextColumn ? 220 : 140,
+    minWidth: isImageColumn ? "max-content" : isNumberColumn ? 72 : isLongTextColumn ? 160 : 120,
+    maxWidth: isImageColumn ? "none" : isNumberColumn ? 72 : isLongTextColumn ? 220 : 160,
     pl: columnIndex === 0 ? 3 : 2,
     py: 1.25,
-    whiteSpace: "normal",
+    whiteSpace: isImageColumn ? "nowrap" : "normal",
     wordBreak: "break-word",
     overflowWrap: "anywhere",
     lineHeight: 1.35
@@ -736,6 +820,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
         key: column.columnKey,
         columnKey: column.columnKey,
         label: column.label,
+        columnType: column.columnType,
         optionsJson: column.optionsJson,
         enableRowSpan: column.enableRowSpan
       }));
@@ -748,7 +833,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
     return Object.keys(firstItem.itemData).map((key) => ({
       key,
-      label: toTitleCase(key)
+      label: toTitleCase(key),
+      columnType: "text"
     }));
   }, [monthlyItems, referenceView?.templateColumns]);
   const monthlyRowSpanMap = useMemo(
@@ -1076,6 +1162,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
           key: column.columnKey,
           columnKey: column.columnKey,
           label: column.label,
+          columnType: column.columnType,
           optionsJson: column.optionsJson,
           enableRowSpan: column.enableRowSpan
         }));
@@ -1086,7 +1173,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
       }
       return Object.keys(firstItem.itemData).map((key) => ({
         key,
-        label: toTitleCase(key)
+        label: toTitleCase(key),
+        columnType: "text"
       }));
     })();
     const modeRowSpanMap = buildRowSpanMap(modeItems, modeDisplayColumns, (item, column) => item?.itemData?.[column.key]);
@@ -1126,11 +1214,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
             size="small"
             sx={{
               minWidth: Math.max(880, modeDisplayColumns.length * 140 + modeEntryColumns.length * MONTH_DAY_COLUMN_WIDTH),
-              tableLayout: "fixed",
+              tableLayout: "auto",
               "& .MuiTableCell-root": {
                 borderRight: 1,
                 borderColor: "divider",
-                verticalAlign: "top"
+                verticalAlign: "middle"
               },
               "& .MuiTableCell-root:last-of-type": {
                 borderRight: 0
@@ -1150,7 +1238,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     key={`${mode}-${column.key}`}
                     sx={{
                       bgcolor: "#f8fafc",
-                      ...getMonthlySheetColumnSx(column.key, columnIndex)
+                      ...getMonthlySheetColumnSx(column, columnIndex)
                     }}
                   >
                     {column.label}
@@ -1194,15 +1282,15 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                         sx={{
                           verticalAlign: "middle",
-                          ...getMonthlySheetColumnSx(column.key, columnIndex)
+                          ...getMonthlySheetColumnSx(column, columnIndex)
                         }}
                       >
                         {(mergeCell?.rowSpan ?? 1) > 1 ? (
                           <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%", width: "100%" }}>
-                            {item.itemData?.[column.key] || "-"}
+                            <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
                           </Box>
                         ) : (
-                          item.itemData?.[column.key] || "-"
+                          <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
                         )}
                       </TableCell>
                     );
@@ -1692,11 +1780,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       size="small"
                       sx={{
                         minWidth: Math.max(860, displayColumns.length * 180 + 460),
-                        tableLayout: "fixed",
+                        tableLayout: "auto",
                         "& .MuiTableCell-root": {
                           borderRight: 1,
                           borderColor: "divider",
-                          verticalAlign: "top",
+                          verticalAlign: "middle",
                           whiteSpace: "normal",
                           overflowWrap: "anywhere",
                           wordBreak: "break-word"
@@ -1712,8 +1800,10 @@ export default function ChecksheetSubmissionMonthlyPage() {
                             <TableCell
                               key={column.key}
                               sx={{
-                                width: column.key === "itemNo" ? 90 : 180,
-                                minWidth: column.key === "itemNo" ? 90 : 180,
+                                width: column.columnType === "image" ? "auto" : column.key === "itemNo" ? 90 : 180,
+                                minWidth: column.columnType === "image" ? "max-content" : column.key === "itemNo" ? 90 : 180,
+                                maxWidth: column.columnType === "image" ? "none" : undefined,
+                                whiteSpace: column.columnType === "image" ? "nowrap" : undefined,
                                 pl: columnIndex === 0 ? 3 : 2
                               }}
                             >
@@ -1741,20 +1831,21 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                   data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                                   sx={{
                                     verticalAlign: "middle",
-                                    whiteSpace: "normal",
                                     overflowWrap: "anywhere",
                                     wordBreak: "break-word",
-                                    width: column.key === "itemNo" ? 90 : 180,
-                                    minWidth: column.key === "itemNo" ? 90 : 180,
+                                    width: column.columnType === "image" ? "auto" : column.key === "itemNo" ? 90 : 180,
+                                    minWidth: column.columnType === "image" ? "max-content" : column.key === "itemNo" ? 90 : 180,
+                                    maxWidth: column.columnType === "image" ? "none" : undefined,
+                                    whiteSpace: column.columnType === "image" ? "nowrap" : "normal",
                                     pl: columnIndex === 0 ? 3 : 2
                                   }}
                                 >
                                   {(mergeCell?.rowSpan ?? 1) > 1 ? (
                                     <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
-                                      {item.itemData?.[column.key] || "-"}
+                                      <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
                                     </Box>
                                   ) : (
-                                    item.itemData?.[column.key] || "-"
+                                    <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
                                   )}
                                 </TableCell>
                               );
