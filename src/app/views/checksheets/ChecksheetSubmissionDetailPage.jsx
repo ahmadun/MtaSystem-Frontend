@@ -686,7 +686,8 @@ export default function ChecksheetSubmissionDetailPage() {
   const checksheetMode = normalizeChecksheetMode(selectedMode || baseSubmission?.checksheetMode || "");
   const { data: submission, isLoading, isError, error } = useChecksheetSubmission(submissionId, {
     params: checksheetMode ? { checksheetMode, ...(selectedTemplateId ? { templateId: selectedTemplateId } : {}) } : undefined,
-    enabled: !!submissionId && !!checksheetMode
+    enabled: !!submissionId && !!checksheetMode,
+    placeholderData: (previousData) => previousData ?? baseSubmission
   });
   const { data: approvalTemplates } = useApprovalTemplates({ page: 1, pageSize: 100, isActive: true });
   const createInspectionMutation = useCreateInspectionRecord(submissionId);
@@ -762,7 +763,8 @@ export default function ChecksheetSubmissionDetailPage() {
     [checksheetMode, inspectionDate, latestInspectionRecord?.inspectionDate, selectedInspectionRecord?.inspectionDate, selectedTemplateId, submission?.inspectionDate]
   );
   const { data: monthlyView } = useChecksheetSubmissionMonthlyView(submissionId, monthlyParams, {
-    enabled: !!submissionId && !!monthlyParams?.year && !!monthlyParams?.month
+    enabled: !!submissionId && !!monthlyParams?.year && !!monthlyParams?.month,
+    placeholderData: (previousData) => previousData
   });
   const currentApprovalRequestId = submission?.currentApprovalRequestId ?? null;
   const { data: currentApprovalRequest } = useApprovalRequest(submissionId, currentApprovalRequestId, {

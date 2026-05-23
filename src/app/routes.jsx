@@ -13,6 +13,7 @@ const ChecksheetAreasPage = Loadable(lazy(() => import("app/views/master/Checksh
 const ChecksheetLineMastersPage = Loadable(lazy(() => import("app/views/master/ChecksheetLineMastersPage")));
 const ChecksheetGroupsPage = Loadable(lazy(() => import("app/views/master/ChecksheetGroupsPage")));
 const ChecksheetMachineCodeOptionsPage = Loadable(lazy(() => import("app/views/master/ChecksheetMachineCodeOptionsPage")));
+const ChecksheetHolidaysPage = Loadable(lazy(() => import("app/views/master/ChecksheetHolidaysPage")));
 const ChecksheetMastersPage = Loadable(lazy(() => import("app/views/master/ChecksheetMastersPage")));
 const ChecksheetLinesPage = Loadable(lazy(() => import("app/views/master/ChecksheetLinesPage")));
 const RepairmanCheckersPage = Loadable(lazy(() => import("app/views/master/RepairmanCheckersPage")));
@@ -48,6 +49,7 @@ const routes = [
       { path: "/master/checksheet-line-masters", element: withRoles(<ChecksheetLineMastersPage />, adminRoles) },
       { path: "/master/checksheet-groups", element: withRoles(<ChecksheetGroupsPage />, superAdminRoles) },
       { path: "/master/checksheet-machine-codes", element: withRoles(<ChecksheetMachineCodeOptionsPage />, adminRoles) },
+      { path: "/master/calendar", element: withRoles(<ChecksheetHolidaysPage />, adminRoles) },
       { path: "/master/checksheet-masters", element: withRoles(<ChecksheetMastersPage />, adminRoles) },
       { path: "/master/checksheet-lines", element: withRoles(<ChecksheetLinesPage />, adminRoles) },
       { path: "/master/repairman-checkers", element: withRoles(<RepairmanCheckersPage />, adminRoles) },

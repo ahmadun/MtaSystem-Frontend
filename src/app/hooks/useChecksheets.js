@@ -26,6 +26,7 @@ import {
   getChecksheetMachine,
   getChecksheetMachines,
   getChecksheetMachineCodeOptions,
+  getChecksheetHolidays,
   exportChecksheetMachineLabels,
   exportChecksheetSubmissionMonthlyView,
   deleteChecksheetArea,
@@ -62,6 +63,10 @@ import {
   createChecksheetMachineCodeOption,
   updateChecksheetMachineCodeOption,
   deleteChecksheetMachineCodeOption,
+  createChecksheetHoliday,
+  generateChecksheetWeekendHolidays,
+  updateChecksheetHoliday,
+  deleteChecksheetHoliday,
   updateRepairmanChecker,
   updateChecksheetStepApprover,
   updateChecksheetLine,
@@ -139,6 +144,15 @@ export const useChecksheetMachineCodeOptions = (options = {}) =>
   useQuery({
     queryKey: ["checksheets", "masters", "machine-code-options"],
     queryFn: () => getChecksheetMachineCodeOptions().then((res) => res.data),
+    staleTime: 30_000,
+    ...options
+  });
+
+export const useChecksheetHolidays = (params = {}, options = {}) =>
+  useQuery({
+    queryKey: ["checksheets", "masters", "holidays", params],
+    queryFn: () => getChecksheetHolidays(params).then((res) => res.data),
+    keepPreviousData: true,
     staleTime: 30_000,
     ...options
   });
@@ -223,6 +237,18 @@ export const useUpdateChecksheetMachineCodeOption = (machineCode) =>
 
 export const useDeleteChecksheetMachineCodeOption = () =>
   useSnackbarMutation(deleteChecksheetMachineCodeOption, [CHECKSHEET_KEYS.all], "Machine code option deleted successfully");
+
+export const useCreateChecksheetHoliday = () =>
+  useSnackbarMutation(createChecksheetHoliday, [CHECKSHEET_KEYS.all, ["checksheets", "masters", "holidays"]], "Holiday created successfully");
+
+export const useGenerateChecksheetWeekendHolidays = () =>
+  useSnackbarMutation(generateChecksheetWeekendHolidays, [CHECKSHEET_KEYS.all, ["checksheets", "masters", "holidays"]], "Weekend holidays generated successfully");
+
+export const useUpdateChecksheetHoliday = (id) =>
+  useSnackbarMutation((data) => updateChecksheetHoliday(id, data), [CHECKSHEET_KEYS.all, ["checksheets", "masters", "holidays"]], "Holiday updated successfully");
+
+export const useDeleteChecksheetHoliday = () =>
+  useSnackbarMutation(deleteChecksheetHoliday, [CHECKSHEET_KEYS.all, ["checksheets", "masters", "holidays"]], "Holiday deleted successfully");
 
 export const useCreateRepairmanChecker = () =>
   useSnackbarMutation(createRepairmanChecker, [CHECKSHEET_KEYS.all], "Repairman checker created successfully");

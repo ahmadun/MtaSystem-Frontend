@@ -98,8 +98,14 @@ const navigations = [
         auth: authRoles.admin
       },
       {
-        name: "Checksheet Masters",
+        name: "Calendar Management",
         iconText: "CM",
+        path: "/master/calendar",
+        auth: authRoles.admin
+      },
+      {
+        name: "Checksheet Masters",
+        iconText: "CS",
         path: "/master/checksheet-masters",
         auth: authRoles.admin
       },

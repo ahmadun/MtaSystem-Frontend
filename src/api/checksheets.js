@@ -65,6 +65,11 @@ export const getChecksheetMachineCodeOptions = async () => {
   return response.data;
 };
 
+export const getChecksheetHolidays = async (params) => {
+  const response = await apiClient.get("/checksheet-masters/holidays", { params });
+  return response.data;
+};
+
 export const getRepairmanCheckers = async (params) => {
   const response = await apiClient.get("/checksheet-masters/repairman-checkers", { params });
   return response.data;
@@ -134,6 +139,26 @@ export const updateChecksheetMachineCodeOption = async (machineCode, data) => {
 
 export const deleteChecksheetMachineCodeOption = async (machineCode) => {
   const response = await apiClient.delete(`/checksheet-masters/machine-code-options/${machineCode}`);
+  return response.data;
+};
+
+export const createChecksheetHoliday = async (data) => {
+  const response = await apiClient.post("/checksheet-masters/holidays", data);
+  return response.data;
+};
+
+export const generateChecksheetWeekendHolidays = async (data) => {
+  const response = await apiClient.post("/checksheet-masters/holidays/generate-weekends", data);
+  return response.data;
+};
+
+export const updateChecksheetHoliday = async (id, data) => {
+  const response = await apiClient.put(`/checksheet-masters/holidays/${id}`, data);
+  return response.data;
+};
+
+export const deleteChecksheetHoliday = async (id) => {
+  const response = await apiClient.delete(`/checksheet-masters/holidays/${id}`);
   return response.data;
 };
 

@@ -41,6 +41,7 @@ import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
   useCancelRepairRecordApproval,
+  useChecksheetHolidays,
   useChecksheetSubmissionMonthlyView,
   useCreateInspectionRecord,
   useCreateRepairRecord,
@@ -273,6 +274,16 @@ function getDateStringForEntry(entry, daySummary, monthValue, fallbackDate) {
 
 function getInspectionDateForColumn(entry, daySummary) {
   return daySummary?.inspectionDate ?? entry?.inspectionDate ?? null;
+}
+
+function getHeaderDateForEntry(entry, daySummary, monthValue) {
+  const inspectionDate = getInspectionDateForColumn(entry, daySummary);
+  if (inspectionDate) {
+    return String(inspectionDate).slice(0, 10);
+  }
+
+  const day = Number(String(entry?.key ?? "").replace("day:", ""));
+  return monthValue && day > 0 ? `${monthValue}-${String(day).padStart(2, "0")}` : "";
 }
 
 function getMachineCodesForColumn(entry, daySummary) {
@@ -875,6 +886,21 @@ export default function ChecksheetSubmissionMonthlyPage() {
     () => [...(referenceView?.approvalSteps ?? [])].sort((left, right) => left.stepOrder - right.stepOrder),
     [referenceView?.approvalSteps]
   );
+  const holidayMonth = useMemo(() => parseMonthInput(monthValue), [monthValue]);
+  const { data: holidayPage } = useChecksheetHolidays(
+    {
+      page: 1,
+      pageSize: 370,
+      year: holidayMonth.year,
+      month: holidayMonth.month,
+      isActive: true
+    },
+    { enabled: !!holidayMonth.year && !!holidayMonth.month }
+  );
+  const holidayMap = useMemo(
+    () => new Map((holidayPage?.items ?? []).map((holiday) => [String(holiday.holidayDate).slice(0, 10), holiday])),
+    [holidayPage?.items]
+  );
   const currentMonthEndApprovalStep = useMemo(
     () => monthEndApprovalSteps.find((step) => step.status === "in_progress") ?? null,
     [monthEndApprovalSteps]
@@ -1331,6 +1357,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   </TableCell>
                 ))}
                 {modeEntryColumns.map((entry) => {
+                  const daySummary = modeDaySummaryMap.get(entry.key);
+                  const holiday = mode === "daily" ? holidayMap.get(getHeaderDateForEntry(entry, daySummary, monthValue)) : null;
                   const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
                   return (
                     <TableCell
@@ -1342,9 +1370,11 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         setSelectedEntryKey(entry.key);
                       }}
                       sx={{
-                        ...getMonthDayCellSx(isSelected ? "#dbeafe" : "#f8fafc", true),
-                        fontWeight: isSelected ? 700 : 500
+                        ...getMonthDayCellSx(isSelected ? "#dbeafe" : holiday ? "#fee2e2" : "#f8fafc", true),
+                        color: holiday ? "#b91c1c" : "inherit",
+                        fontWeight: holiday || isSelected ? 700 : 500
                       }}
+                      title={holiday?.holidayName}
                     >
                       {entry.label}
                     </TableCell>
@@ -1451,36 +1481,9 @@ export default function ChecksheetSubmissionMonthlyPage() {
                       );
                     })}
                   </TableRow>
-                  {isModeRegular && (
-                    <TableRow>
-                      <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
-                        Inspection Date
-                      </TableCell>
-                      {modeEntryColumns.map((entry) => {
-                        const daySummary = modeDaySummaryMap.get(entry.key);
-                        const inspectionDate = getInspectionDateForColumn(entry, daySummary);
-                        const isSelected = selectedMode === mode && selectedTemplateId === modeTemplateId && entry.key === modeSelectedEntry;
-
-                        return (
-                          <TableCell
-                            key={`${mode}-inspection-date-${entry.key}`}
-                            align="center"
-                            onClick={() => {
-                              setSelectedMode(mode);
-                              setSelectedTemplateId(modeTemplateId);
-                              setSelectedEntryKey(entry.key);
-                            }}
-                            sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
-                          >
-                            {daySummary?.recordId || inspectionDate ? inspectionDate || "-" : "-"}
-                          </TableCell>
-                        );
-                      })}
-                    </TableRow>
-                  )}
                 </>
               )}
-              {modeInspectionEntryMode === "weekly" && (
+              {isModeRegular && modeInspectionEntryMode !== "date" && (
                 <TableRow>
                   <TableCell colSpan={modeDisplayColumns.length} sx={{ fontWeight: 700, bgcolor: "#f8fafc", pl: 3 }}>
                     Inspection Date
@@ -1492,7 +1495,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
                     return (
                       <TableCell
-                        key={`${mode}-weekly-inspection-date-${entry.key}`}
+                        key={`${mode}-inspection-date-${entry.key}`}
                         align="center"
                         onClick={() => {
                           setSelectedMode(mode);
@@ -1501,7 +1504,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         }}
                         sx={getMonthDayCellSx(isSelected ? "#dbeafe" : "#fff")}
                       >
-                        {inspectionDate || "-"}
+                        {daySummary?.recordId || inspectionDate ? inspectionDate || "-" : "-"}
                       </TableCell>
                     );
                   })}
