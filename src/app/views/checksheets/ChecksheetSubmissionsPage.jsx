@@ -1512,7 +1512,7 @@ export default function ChecksheetSubmissionsPage() {
             variant="outlined"
             sx={{ opacity: isFetching ? 0.72 : 1, transition: "opacity 0.2s", overflowX: "auto" }}
           >
-            <Table>
+            <Table sx={{ minWidth: 1180 }}>
               <TableHead>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <TableRow key={headerGroup.id}>
@@ -1527,7 +1527,8 @@ export default function ChecksheetSubmissionsPage() {
                           align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
                             pl: isFirstColumn ? 3 : 2,
-                            pr: isLastColumn ? 3 : 2
+                            pr: isLastColumn ? 3 : 2,
+                            whiteSpace: "nowrap"
                           }}
                         >
                           {header.isPlaceholder ? null : header.column.getCanSort() ? (
@@ -1560,6 +1561,7 @@ export default function ChecksheetSubmissionsPage() {
                           key={cell.id}
                           align={isCenterColumn ? "center" : isLastColumn ? "right" : "left"}
                           sx={{
+                            verticalAlign: "top",
                             pl: isFirstColumn ? 3 : 2,
                             pr: isLastColumn ? 3 : 2
                           }}

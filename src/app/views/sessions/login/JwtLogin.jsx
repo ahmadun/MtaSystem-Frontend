@@ -13,8 +13,8 @@ import { Paragraph } from "app/components/Typography";
 import AuthLayout from "../components/AuthLayout";
 
 const initialValues = {
-  username: "admin",
-  password: "Admin1234"
+  username: "",
+  password: ""
 };
 
 const validationSchema = Yup.object().shape({

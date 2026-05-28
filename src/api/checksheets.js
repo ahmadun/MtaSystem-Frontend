@@ -262,6 +262,11 @@ export const getChecksheetMonthlyResults = async (params) => {
   return response.data;
 };
 
+export const getChecksheetLineStartStatus = async (params) => {
+  const response = await apiClient.get("/checksheet-submissions/line-start-status", { params });
+  return response.data;
+};
+
 export const getChecksheetSubmission = async (id, params) => {
   const response = await apiClient.get(`/checksheet-submissions/${id}`, { params });
   return response.data;

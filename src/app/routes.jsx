@@ -22,6 +22,7 @@ const ChecksheetTemplatesPage = Loadable(lazy(() => import("app/views/checksheet
 const ChecksheetSubmissionsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionsPage")));
 const ChecksheetRepairHistoryPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetRepairHistoryPage")));
 const ChecksheetMonthlyResultsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetMonthlyResultsPage")));
+const ChecksheetLineStartStatusPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetLineStartStatusPage")));
 const ChecksheetSubmissionDetailPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionDetailPage")));
 const ChecksheetTemplateAppendItemsPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetTemplateAppendItemsPage")));
 const ChecksheetSubmissionMonthlyPage = Loadable(lazy(() => import("app/views/checksheets/ChecksheetSubmissionMonthlyPage")));
@@ -59,6 +60,7 @@ const routes = [
       { path: "/master/checksheet-templates/:id/edit", element: withRoles(<ChecksheetTemplatesPage />, superAdminRoles) },
       { path: "/checksheets/templates", element: <Navigate to="/master/checksheet-templates" replace /> },
       { path: "/checksheets/submissions", element: <ChecksheetSubmissionsPage /> },
+      { path: "/checksheets/line-start-status", element: <ChecksheetLineStartStatusPage /> },
       { path: "/checksheets/repairs", element: <ChecksheetRepairHistoryPage /> },
       { path: "/checksheets/monthly-results", element: <ChecksheetMonthlyResultsPage /> },
       { path: "/checksheets/submissions/:id", element: <ChecksheetSubmissionDetailPage /> },

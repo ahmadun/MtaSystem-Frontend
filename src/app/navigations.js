@@ -16,6 +16,11 @@ const navigations = [
         path: "/checksheets/submissions"
       },
       {
+        name: "Started Status",
+        iconText: "SS",
+        path: "/checksheets/line-start-status"
+      },
+      {
         name: "Repair History",
         iconText: "RH",
         path: "/checksheets/repairs"

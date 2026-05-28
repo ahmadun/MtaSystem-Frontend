@@ -47,6 +47,7 @@ import {
   getApprovalRequest,
   getApprovalTemplates,
   getChecksheetSubmission,
+  getChecksheetLineStartStatus,
   getChecksheetSubmissionMonthlyView,
   getChecksheetMonthlyResults,
   getChecksheetSubmissions,
@@ -88,6 +89,7 @@ export const CHECKSHEET_KEYS = {
   template: (id) => ["checksheets", "templates", id],
   submissions: (params) => ["checksheets", "submissions", params],
   monthlyResults: (params) => ["checksheets", "monthly-results", params],
+  lineStartStatus: (params) => ["checksheets", "line-start-status", params],
   submission: (id, params) => ["checksheets", "submission", id, params],
   submissionBase: (id) => ["checksheets", "submission", id],
   submissionMonthlyView: (id, params) => ["checksheets", "submission", id, "monthly-view", params],
@@ -417,6 +419,15 @@ export const useChecksheetMonthlyResults = (params = {}, options = {}) =>
   useQuery({
     queryKey: CHECKSHEET_KEYS.monthlyResults(params),
     queryFn: () => getChecksheetMonthlyResults(params).then((res) => res.data),
+    keepPreviousData: true,
+    staleTime: 30_000,
+    ...options
+  });
+
+export const useChecksheetLineStartStatus = (params = {}, options = {}) =>
+  useQuery({
+    queryKey: CHECKSHEET_KEYS.lineStartStatus(params),
+    queryFn: () => getChecksheetLineStartStatus(params).then((res) => res.data),
     keepPreviousData: true,
     staleTime: 30_000,
     ...options
