@@ -66,6 +66,44 @@ const INSPECTION_ENTRY_MODES = [
   { value: "free_text", label: "Free Text Options" }
 ];
 
+const MIN_COLUMN_WIDTH = 60;
+const MAX_COLUMN_WIDTH = 480;
+
+function clampColumnWidth(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(numericValue)));
+}
+
+function getDefaultColumnWidth(column) {
+  const columnKey = String(column?.columnKey ?? "").trim().toLowerCase();
+  const label = String(column?.label ?? "").trim().toLowerCase();
+
+  if (column?.columnType === "image") {
+    return 220;
+  }
+
+  if (["no", "itemno", "item_no"].includes(columnKey) || ["no.", "no"].includes(label)) {
+    return 72;
+  }
+
+  if (
+    column?.columnType === "textarea" ||
+    ["itemname", "item_name", "method", "criteria", "tujuan", "konten", "item", "metodepengecekan", "penilaian"].includes(columnKey)
+  ) {
+    return 220;
+  }
+
+  return 140;
+}
+
+function resolveColumnWidth(column) {
+  return clampColumnWidth(column?.widthPx) ?? getDefaultColumnWidth(column);
+}
+
 function formatInspectionEntryMode(value) {
   if (value === "board") return "Board Code";
   if (value === "weekly") return "Weekly";
@@ -80,6 +118,8 @@ function blankColumn(sortOrder) {
     columnType: "text",
     isRequired: false,
     enableRowSpan: false,
+    enableColSpan: false,
+    widthPx: 140,
     sortOrder,
     optionsJson: ""
   };
@@ -93,6 +133,50 @@ function normalizeColumnKey(label, fallbackIndex) {
     .replace(/^_+|_+$/g, "");
 
   return normalized || `column_${fallbackIndex + 1}`;
+}
+
+function getUniqueColumnKey(baseKey, columns, currentIndex) {
+  const normalizedBaseKey = String(baseKey || `column_${currentIndex + 1}`).trim();
+  const existingKeys = new Set(
+    columns
+      .map((column, index) => (index === currentIndex ? "" : String(column.columnKey ?? "").trim().toLowerCase()))
+      .filter(Boolean)
+  );
+
+  if (!existingKeys.has(normalizedBaseKey.toLowerCase())) {
+    return normalizedBaseKey;
+  }
+
+  let suffix = 2;
+  let nextKey = `${normalizedBaseKey}_${suffix}`;
+  while (existingKeys.has(nextKey.toLowerCase())) {
+    suffix += 1;
+    nextKey = `${normalizedBaseKey}_${suffix}`;
+  }
+
+  return nextKey;
+}
+
+function getUniqueColumnKeyForLabel(label, columns, currentIndex) {
+  return getUniqueColumnKey(normalizeColumnKey(label, currentIndex), columns, currentIndex);
+}
+
+function ensureUniqueColumnKeys(columns) {
+  const usedKeys = new Set();
+
+  return columns.map((column, index) => {
+    const baseKey = String(column.columnKey ?? "").trim() || normalizeColumnKey(column.label, index);
+    let nextKey = baseKey;
+    let suffix = 2;
+
+    while (usedKeys.has(nextKey.toLowerCase())) {
+      nextKey = `${baseKey}_${suffix}`;
+      suffix += 1;
+    }
+
+    usedKeys.add(nextKey.toLowerCase());
+    return { ...column, columnKey: nextKey };
+  });
 }
 
 function parseColumnOptions(optionsJson) {
@@ -109,10 +193,13 @@ function parseColumnOptions(optionsJson) {
 
 function serializeColumnOptions(column) {
   const baseOptions = parseColumnOptions(column.optionsJson);
+  const widthPx = resolveColumnWidth(column);
 
   return JSON.stringify({
     ...baseOptions,
-    enableRowSpan: column.enableRowSpan ?? false
+    enableRowSpan: column.enableRowSpan ?? false,
+    enableColSpan: column.enableColSpan ?? false,
+    widthPx
   });
 }
 
@@ -175,10 +262,16 @@ function syncItemKeys(items, previousKey, nextKey) {
   });
 }
 
+function isItemNumberColumn(column) {
+  const columnKey = String(column?.columnKey ?? "").trim().toLowerCase();
+  const label = String(column?.label ?? "").trim().toLowerCase();
+  return columnKey === "itemno" || columnKey === "no" || label === "no.";
+}
+
 function createItemFromColumns(columns, sortOrder) {
   const next = { sortOrder, valueType: "fixed" };
   columns.forEach((column, index) => {
-    next[column.columnKey] = column.columnKey === "itemNo" ? String(sortOrder + 1) : index === 1 ? "" : "";
+    next[column.columnKey] = isItemNumberColumn(column) ? String(sortOrder + 1) : index === 1 ? "" : "";
   });
   return next;
 }
@@ -342,9 +435,9 @@ function getApproverUserIds(step) {
 function buildInitialForm(template) {
   if (!template) {
     const columns = [
-      { columnKey: "itemNo", label: "No.", columnType: "text", isRequired: true, enableRowSpan: false, sortOrder: 0, optionsJson: "" },
-      { columnKey: "itemName", label: "Inspection Item", columnType: "textarea", isRequired: true, enableRowSpan: false, sortOrder: 1, optionsJson: "" },
-      { columnKey: "method", label: "Method", columnType: "textarea", isRequired: false, enableRowSpan: false, sortOrder: 2, optionsJson: "" }
+      { columnKey: "no", label: "No.", columnType: "text", isRequired: true, enableRowSpan: false, enableColSpan: false, widthPx: 72, sortOrder: 0, optionsJson: "" },
+      { columnKey: "itemName", label: "Inspection Item", columnType: "textarea", isRequired: true, enableRowSpan: false, enableColSpan: false, widthPx: 260, sortOrder: 1, optionsJson: "" },
+      { columnKey: "method", label: "Method", columnType: "textarea", isRequired: false, enableRowSpan: false, enableColSpan: false, widthPx: 220, sortOrder: 2, optionsJson: "" }
     ];
 
     return {
@@ -370,14 +463,24 @@ function buildInitialForm(template) {
       : [{ label: "", valueType: "free_text" }],
     description: template.description ?? "",
     isActive: template.isActive ?? true,
-    columns: (template.columns ?? []).map((column, index) => ({
-      columnKey: column.columnKey,
-      label: column.label,
-      columnType: normalizeColumnType(column.columnType),
-      isRequired: column.isRequired,
-      enableRowSpan: column.enableRowSpan ?? parseColumnOptions(column.optionsJson).enableRowSpan ?? false,
-      sortOrder: index,
-      optionsJson: column.optionsJson ?? ""
+    columns: ensureUniqueColumnKeys((template.columns ?? []).map((column, index) => {
+      const columnOptions = parseColumnOptions(column.optionsJson);
+      const normalizedColumn = {
+        columnKey: column.columnKey,
+        label: column.label,
+        columnType: normalizeColumnType(column.columnType),
+        isRequired: column.isRequired,
+        enableRowSpan: column.enableRowSpan ?? columnOptions.enableRowSpan ?? false,
+        enableColSpan: columnOptions.enableColSpan ?? false,
+        widthPx: clampColumnWidth(columnOptions.widthPx),
+        sortOrder: index,
+        optionsJson: column.optionsJson ?? ""
+      };
+
+      return {
+        ...normalizedColumn,
+        widthPx: normalizedColumn.widthPx ?? getDefaultColumnWidth(normalizedColumn)
+      };
     })),
     items: (template.items ?? []).map((item, index) => ({
       sortOrder: index,
@@ -419,6 +522,17 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
   };
 
   const handleSubmit = async () => {
+    const formColumns = ensureUniqueColumnKeys(form.columns);
+    const payloadColumns = formColumns.map((column, index) => ({
+      ...column,
+      columnKey: column.columnKey,
+      label: column.label.trim(),
+      sortOrder: index,
+      enableRowSpan: column.enableRowSpan ?? false,
+      enableColSpan: column.enableColSpan ?? false,
+      optionsJson: serializeColumnOptions(column)
+    }));
+
     const payload = {
       name: form.name.trim(),
       checksheetMode: form.checksheetMode,
@@ -426,18 +540,12 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
       inspectionEntryOptionsJson: form.inspectionEntryMode === "free_text" ? serializeInspectionEntryOptions(form.inspectionEntryOptions) : null,
       description: form.description.trim() || null,
       isActive: form.isActive,
-      columns: form.columns.map((column, index) => ({
-        ...column,
-        columnKey: normalizeColumnKey(column.label, index),
-        label: column.label.trim(),
-        sortOrder: index,
-        enableRowSpan: column.enableRowSpan ?? false,
-        optionsJson: serializeColumnOptions(column)
-      })),
+      columns: payloadColumns,
       items: form.items.map((item, index) => {
         const data = {};
-        form.columns.forEach((column) => {
-          data[column.columnKey] = item[column.columnKey] ?? "";
+        payloadColumns.forEach((column, columnIndex) => {
+          const sourceKey = form.columns[columnIndex]?.columnKey;
+          data[column.columnKey] = item[sourceKey] ?? item[column.columnKey] ?? "";
         });
         return { sortOrder: index, valueType: item.valueType ?? "fixed", data };
       }),
@@ -490,7 +598,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
     gap: 1.5,
     gridTemplateColumns: {
       xs: "minmax(0, 1fr)",
-      md: "minmax(220px, 1.4fr) minmax(150px, 0.9fr) minmax(110px, 0.7fr) minmax(130px, 0.8fr) auto"
+      md: "minmax(220px, 1.4fr) minmax(150px, 0.75fr) minmax(110px, 0.55fr) minmax(120px, 0.55fr) minmax(130px, 0.65fr) minmax(150px, 0.75fr) auto"
     },
     alignItems: "start"
   };
@@ -641,7 +749,7 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                         setForm((current) => {
                           const nextLabel = event.target.value;
                           const previousKey = current.columns[index].columnKey;
-                          const nextKey = normalizeColumnKey(nextLabel, index);
+                          const nextKey = getUniqueColumnKeyForLabel(nextLabel, current.columns, index);
 
                           return {
                             ...current,
@@ -664,6 +772,30 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                       <MenuItem value="no">No</MenuItem>
                     </TextField>
                     <TextField
+                      label="Width (px)"
+                      type="number"
+                      value={column.widthPx ?? getDefaultColumnWidth(column)}
+                      onChange={(event) => {
+                        const nextWidth = event.target.value;
+                        setForm((current) => ({
+                          ...current,
+                          columns: current.columns.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, widthPx: nextWidth } : item
+                          )
+                        }));
+                      }}
+                      onBlur={() =>
+                        setForm((current) => ({
+                          ...current,
+                          columns: current.columns.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, widthPx: resolveColumnWidth(item) } : item
+                          )
+                        }))
+                      }
+                      inputProps={{ min: MIN_COLUMN_WIDTH, max: MAX_COLUMN_WIDTH, step: 10 }}
+                      sx={{ minWidth: 120 }}
+                    />
+                    <TextField
                       select
                       label="Merge Same Rows"
                       value={column.enableRowSpan ? "yes" : "no"}
@@ -676,6 +808,23 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                         }))
                       }
                       sx={{ minWidth: 130 }}
+                    >
+                      <MenuItem value="yes">Yes</MenuItem>
+                      <MenuItem value="no">No</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      label="Merge Same Columns"
+                      value={column.enableColSpan ? "yes" : "no"}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          columns: current.columns.map((item, itemIndex) =>
+                            itemIndex === index ? { ...item, enableColSpan: event.target.value === "yes" } : item
+                          )
+                        }))
+                      }
+                      sx={{ minWidth: 150 }}
                     >
                       <MenuItem value="yes">Yes</MenuItem>
                       <MenuItem value="no">No</MenuItem>

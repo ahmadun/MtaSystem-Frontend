@@ -120,6 +120,37 @@ function formatMonthPeriod(dateValue) {
   return formatMonthLabel(dateValue);
 }
 
+function waitForQrReaderElement(elementId, isCancelled) {
+  return new Promise((resolve) => {
+    let attempts = 0;
+
+    const checkElement = () => {
+      if (isCancelled()) {
+        resolve(null);
+        return;
+      }
+
+      const element = document.getElementById(elementId);
+      const rect = element?.getBoundingClientRect();
+
+      if (element && rect?.width > 0 && rect?.height > 0) {
+        resolve(element);
+        return;
+      }
+
+      attempts += 1;
+      if (attempts > 30) {
+        resolve(element ?? null);
+        return;
+      }
+
+      window.requestAnimationFrame(checkElement);
+    };
+
+    window.requestAnimationFrame(checkElement);
+  });
+}
+
 function buildGroupOptions(allGroups, machine) {
   const allowedGroupCodes = new Set(machine?.groupCodes ?? []);
   return (allGroups ?? []).filter((group) => allowedGroupCodes.has(group.groupCode));
@@ -235,7 +266,7 @@ function ExistingSubmissionDialog({ open, pending, duplicates, inspectionDate, o
   );
 }
 
-function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission }) {
+function ScanToOpenDialog({ open, targetSubmission, canUseManualCreate, onClose, onOpenSubmission }) {
   const readerElementIdRef = useRef(`submission-open-qr-reader-${Math.random().toString(36).slice(2)}`);
   const html5QrCodeRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -257,6 +288,7 @@ function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission })
     }
 
     let isCancelled = false;
+    let startTimerId;
 
     const stopScanner = async () => {
       const scanner = html5QrCodeRef.current;
@@ -291,10 +323,17 @@ function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission })
       try {
         setScanState("starting");
         setScanErrorMessage("");
+        const readerElement = await waitForQrReaderElement(readerElementIdRef.current, () => isCancelled);
+        if (isCancelled) {
+          return;
+        }
+        if (!readerElement) {
+          throw new Error("Camera scanner view is not ready yet. Please try again.");
+        }
+
         const scanner = new Html5Qrcode(readerElementIdRef.current, { verbose: false });
         html5QrCodeRef.current = scanner;
 
-        setScanState("scanning");
         const onScanSuccess = async (decodedText) => {
           const rawValue = decodedText?.trim();
           if (!rawValue) {
@@ -345,17 +384,21 @@ function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission })
         if (!started) {
           throw new Error("Unable to start the camera scanner on this browser or device.");
         }
+
+        setScanState("scanning");
       } catch (error) {
+        console.error("Camera scanner failed to start:", error);
         setScanState("error");
         setScanErrorMessage(error?.message || "Camera start or QR detection failed.");
         await stopScanner();
       }
     };
 
-    startScanner();
+    startTimerId = window.setTimeout(startScanner, 150);
 
     return () => {
       isCancelled = true;
+      window.clearTimeout(startTimerId);
       stopScanner();
     };
   }, [open, scanSession, scannedMachineCode]);
@@ -459,19 +502,21 @@ function ScanToOpenDialog({ open, targetSubmission, onClose, onOpenSubmission })
                 <Typography variant="caption" color="inherit">
                   The QR code value must match the selected submission machine code.
                 </Typography>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                  <Button variant="outlined" color="inherit" onClick={() => fileInputRef.current?.click()}>
-                    Scan From Photo
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    hidden
-                    onChange={handleImageSelection}
-                  />
-                </Stack>
+                {canUseManualCreate && (
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                    <Button variant="outlined" color="inherit" onClick={() => fileInputRef.current?.click()}>
+                      Scan From Photo
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      hidden
+                      onChange={handleImageSelection}
+                    />
+                  </Stack>
+                )}
               </Stack>
             </Paper>
           )}
@@ -682,7 +727,7 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
   );
 }
 
-function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
+function ScanSubmissionDialog({ open, canUseManualCreate, onClose, navigate, onResolveDuplicate }) {
   const groupsQuery = useChecksheetGroups({ enabled: open });
   const createMutation = useCreateChecksheetSubmission();
   const readerElementIdRef = useRef(`machine-qr-reader-${Math.random().toString(36).slice(2)}`);
@@ -726,6 +771,7 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
     }
 
     let isCancelled = false;
+    let startTimerId;
 
     const stopScanner = async () => {
       const scanner = html5QrCodeRef.current;
@@ -760,10 +806,17 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
       try {
         setScanState("starting");
         setScanErrorMessage("");
+        const readerElement = await waitForQrReaderElement(readerElementIdRef.current, () => isCancelled);
+        if (isCancelled) {
+          return;
+        }
+        if (!readerElement) {
+          throw new Error("Camera scanner view is not ready yet. Please try again.");
+        }
+
         const scanner = new Html5Qrcode(readerElementIdRef.current, { verbose: false });
         html5QrCodeRef.current = scanner;
 
-        setScanState("scanning");
         const onScanSuccess = async (decodedText) => {
           const rawValue = decodedText?.trim();
           if (!rawValue) {
@@ -814,6 +867,8 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
         if (!started) {
           throw new Error("Unable to start the camera scanner on this browser or device.");
         }
+
+        setScanState("scanning");
       } catch (error) {
         setScanState("error");
         setScanErrorMessage(error?.message || "Camera start or QR detection failed.");
@@ -821,10 +876,11 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
       }
     };
 
-    startScanner();
+    startTimerId = window.setTimeout(startScanner, 150);
 
     return () => {
       isCancelled = true;
+      window.clearTimeout(startTimerId);
       stopScanner();
     };
   }, [open, scannedMachineCode, scanSession]);
@@ -1002,7 +1058,9 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
                   {scanState === "unsupported" && (
                     <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", p: 3 }}>
                       <Alert severity="warning">
-                        {scanErrorMessage || "Camera scanning is not available in this browser context. Use Scan From Photo instead."}
+                        {scanErrorMessage || (canUseManualCreate
+                          ? "Camera scanning is not available in this browser context. Use Scan From Photo instead."
+                          : "Camera scanning is not available in this browser context.")}
                       </Alert>
                     </Box>
                   )}
@@ -1017,19 +1075,21 @@ function ScanSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
                 <Typography variant="caption" color="inherit">
                   Point the camera at the machine QR label. The QR value is expected to be the machine code.
                 </Typography>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
-                  <Button variant="outlined" color="inherit" onClick={() => fileInputRef.current?.click()}>
-                    Scan From Photo
-                  </Button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    hidden
-                    onChange={handleImageSelection}
-                  />
-                </Stack>
+                {canUseManualCreate && (
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                    <Button variant="outlined" color="inherit" onClick={() => fileInputRef.current?.click()}>
+                      Scan From Photo
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      hidden
+                      onChange={handleImageSelection}
+                    />
+                  </Stack>
+                )}
               </Stack>
             </Paper>
           )}
@@ -1597,6 +1657,7 @@ export default function ChecksheetSubmissionsPage() {
 
       <ScanSubmissionDialog
         open={scanDialogOpen}
+        canUseManualCreate={canUseManualCreate}
         onClose={() => setScanDialogOpen(false)}
         navigate={navigate}
         onResolveDuplicate={handleResolveDuplicate}
@@ -1610,6 +1671,7 @@ export default function ChecksheetSubmissionsPage() {
       <ScanToOpenDialog
         open={!!scanToOpenTarget}
         targetSubmission={scanToOpenTarget}
+        canUseManualCreate={canUseManualCreate}
         onClose={() => setScanToOpenTarget(null)}
         onOpenSubmission={(submissionId) => navigate(`/checksheets/submissions/${submissionId}`)}
       />

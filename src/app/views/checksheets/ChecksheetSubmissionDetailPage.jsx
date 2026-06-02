@@ -135,6 +135,9 @@ function TemplateItemCellContent({ column, value }) {
       src={imageUrl}
       alt={column.label}
       sx={{
+        width: "100%",
+        maxHeight: 160,
+        objectFit: "contain",
         display: "block",
         border: 1,
         borderColor: "divider",
@@ -623,6 +626,107 @@ function parseColumnOptions(optionsJson) {
   }
 }
 
+const MIN_TEMPLATE_COLUMN_WIDTH = 60;
+const MAX_TEMPLATE_COLUMN_WIDTH = 480;
+const ENTRY_COLUMN_WIDTH = 220;
+const REMARK_COLUMN_WIDTH = 240;
+
+function clampTemplateColumnWidth(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return Math.min(MAX_TEMPLATE_COLUMN_WIDTH, Math.max(MIN_TEMPLATE_COLUMN_WIDTH, Math.round(numericValue)));
+}
+
+function getDefaultTemplateColumnWidth(column) {
+  const columnKey = String(column?.columnKey ?? column?.key ?? "").trim().toLowerCase();
+  const label = String(column?.label ?? "").trim().toLowerCase();
+
+  if (column?.columnType === "image") {
+    return 220;
+  }
+
+  if (["no", "itemno", "item_no"].includes(columnKey) || ["no.", "no"].includes(label)) {
+    return 72;
+  }
+
+  if (
+    column?.columnType === "textarea" ||
+    ["itemname", "item_name", "method", "criteria", "tujuan", "konten", "item", "metodepengecekan", "penilaian"].includes(columnKey)
+  ) {
+    return 220;
+  }
+
+  return 140;
+}
+
+function getTemplateColumnWidth(column) {
+  const columnOptions = parseColumnOptions(column?.optionsJson);
+  return clampTemplateColumnWidth(columnOptions.widthPx) ?? getDefaultTemplateColumnWidth(column);
+}
+
+function getTemplateColumnCellSx(column, columnIndex, width) {
+  const isImageColumn = column?.columnType === "image";
+
+  return {
+    pl: columnIndex === 0 ? 3 : 2,
+    width,
+    minWidth: width,
+    maxWidth: width,
+    whiteSpace: isImageColumn ? "nowrap" : "normal",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word"
+  };
+}
+
+function isColumnSpanEnabled(column) {
+  const columnOptions = parseColumnOptions(column?.optionsJson);
+  return columnOptions.enableColSpan ?? false;
+}
+
+function normalizeHeaderLabel(value) {
+  return String(value ?? "").trim();
+}
+
+function buildHeaderGroups(columns, columnWidths) {
+  const groups = [];
+  let columnIndex = 0;
+
+  while (columnIndex < columns.length) {
+    const column = columns[columnIndex];
+    const label = normalizeHeaderLabel(column?.label);
+    const canMerge = isColumnSpanEnabled(column);
+    let colSpan = 1;
+    let width = columnWidths[columnIndex] ?? getTemplateColumnWidth(column);
+
+    if (canMerge && label) {
+      let nextIndex = columnIndex + 1;
+
+      while (
+        nextIndex < columns.length &&
+        isColumnSpanEnabled(columns[nextIndex]) &&
+        normalizeHeaderLabel(columns[nextIndex]?.label) === label
+      ) {
+        width += columnWidths[nextIndex] ?? getTemplateColumnWidth(columns[nextIndex]);
+        colSpan += 1;
+        nextIndex += 1;
+      }
+    }
+
+    groups.push({
+      column,
+      columnIndex,
+      colSpan,
+      width
+    });
+    columnIndex += colSpan;
+  }
+
+  return groups;
+}
+
 function normalizeMergeValue(value) {
   return String(value ?? "").trim();
 }
@@ -790,6 +894,21 @@ export default function ChecksheetSubmissionDetailPage() {
     return submission?.template?.items ?? [];
   }, [submission?.template?.items]);
   const rowSpanMap = useMemo(() => buildRowSpanMap(templateItems, templateColumns), [templateItems, templateColumns]);
+  const templateColumnWidths = useMemo(
+    () => templateColumns.map((column) => getTemplateColumnWidth(column)),
+    [templateColumns]
+  );
+  const templateHeaderGroups = useMemo(
+    () => buildHeaderGroups(templateColumns, templateColumnWidths),
+    [templateColumns, templateColumnWidths]
+  );
+  const inspectionTableMinWidth = useMemo(
+    () => Math.max(
+      860,
+      templateColumnWidths.reduce((total, width) => total + width, 0) + ENTRY_COLUMN_WIDTH + REMARK_COLUMN_WIDTH
+    ),
+    [templateColumnWidths]
+  );
   const isOwner = Number(user?.id ?? 0) === Number(submission?.createdByUserId ?? 0);
   const isDraft = submission?.status === "draft";
   const hasRespondedToCurrentApprovalRequest = useMemo(
@@ -1595,21 +1714,22 @@ export default function ChecksheetSubmissionDetailPage() {
                 <Table
                   size="small"
                   sx={{
-                    minWidth: Math.max(860, templateColumns.length * 180 + 460),
+                    minWidth: inspectionTableMinWidth,
                     tableLayout: "auto",
                     "& .MuiTableCell-root": {
                       borderRight: 1,
                       borderColor: "divider",
                       verticalAlign: "middle",
                       whiteSpace: "normal",
-                      overflowWrap: "normal",
-                      wordBreak: "normal"
+                      overflowWrap: "anywhere",
+                      wordBreak: "break-word"
                     },
                     "& .MuiTableCell-root:last-of-type": {
                       borderRight: 0
                     },
                     "& .MuiTableHead-root .MuiTableCell-root": {
-                      fontWeight: 700
+                      fontWeight: 700,
+                      textAlign: "center"
                     },
                     "& .MuiTableCell-root[data-merged='true']": {
                       verticalAlign: "middle"
@@ -1618,22 +1738,17 @@ export default function ChecksheetSubmissionDetailPage() {
                 >
                   <TableHead>
                     <TableRow>
-                      {templateColumns.map((column, columnIndex) => (
+                      {templateHeaderGroups.map(({ column, columnIndex, colSpan, width }) => (
                         <TableCell
                           key={column.id ?? column.columnKey}
-                          sx={{
-                            width: column.columnType === "image" ? "auto" : column.columnKey === "itemNo" ? 90 : 180,
-                            minWidth: column.columnType === "image" ? "max-content" : column.columnKey === "itemNo" ? 90 : 180,
-                            maxWidth: column.columnType === "image" ? "none" : undefined,
-                            whiteSpace: column.columnType === "image" ? "nowrap" : undefined,
-                            pl: columnIndex === 0 ? 3 : 2
-                          }}
+                          colSpan={colSpan}
+                          sx={getTemplateColumnCellSx(column, columnIndex, width)}
                         >
                           {column.label}
                         </TableCell>
                       ))}
-                      <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>Entry</TableCell>
-                      <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>Remark</TableCell>
+                      <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>Entry</TableCell>
+                      <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>Remark</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -1654,21 +1769,15 @@ export default function ChecksheetSubmissionDetailPage() {
                               rowSpan={mergeCell?.rowSpan ?? 1}
                               data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                               sx={{
-                                pl: columnIndex === 0 ? 3 : 2,
+                                ...getTemplateColumnCellSx(column, columnIndex, templateColumnWidths[columnIndex]),
                                 verticalAlign: "middle",
-                                overflowWrap: "normal",
-                                wordBreak: "normal",
-                                width: column.columnType === "image" ? "auto" : column.columnKey === "itemNo" ? 90 : 180,
-                                minWidth: column.columnType === "image" ? "max-content" : column.columnKey === "itemNo" ? 90 : 180,
-                                maxWidth: column.columnType === "image" ? "none" : undefined,
-                                whiteSpace: column.columnType === "image" ? "nowrap" : "normal"
                               }}
                             >
                               <TemplateItemCellContent column={column} value={item.data?.[column.columnKey]} />
                             </TableCell>
                           );
                         })}
-                        <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
+                        <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>
                           {effectiveValueType === "fixed" ? (
                             <ButtonGroup
                               size="small"
@@ -1747,7 +1856,7 @@ export default function ChecksheetSubmissionDetailPage() {
                             />
                           )}
                         </TableCell>
-                        <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>
+                        <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>
                           <TextField
                             value={getEntryValue(item.id, "remark")}
                             onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}

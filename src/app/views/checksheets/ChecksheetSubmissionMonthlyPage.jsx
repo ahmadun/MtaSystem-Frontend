@@ -55,6 +55,10 @@ import {
 const FIXED_OPTIONS = ["OK", "NG", "FIX"];
 const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const MONTH_DAY_COLUMN_WIDTH = 64;
+const MIN_TEMPLATE_COLUMN_WIDTH = 60;
+const MAX_TEMPLATE_COLUMN_WIDTH = 480;
+const ENTRY_COLUMN_WIDTH = 220;
+const REMARK_COLUMN_WIDTH = 240;
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
 
@@ -129,6 +133,9 @@ function TemplateItemCellContent({ column, value }) {
       src={imageUrl}
       alt={column.label}
       sx={{
+        width: "100%",
+        maxHeight: 160,
+        objectFit: "contain",
         display: "block",
         border: 1,
         borderColor: "divider",
@@ -589,6 +596,88 @@ function parseColumnOptions(optionsJson) {
   }
 }
 
+function clampTemplateColumnWidth(value) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return null;
+  }
+
+  return Math.min(MAX_TEMPLATE_COLUMN_WIDTH, Math.max(MIN_TEMPLATE_COLUMN_WIDTH, Math.round(numericValue)));
+}
+
+function getDefaultTemplateColumnWidth(column) {
+  const columnKey = String(column?.key ?? column?.columnKey ?? column ?? "").trim().toLowerCase();
+  const label = String(column?.label ?? "").trim().toLowerCase();
+
+  if (column?.columnType === "image") {
+    return 220;
+  }
+
+  if (["no", "itemno", "item_no"].includes(columnKey) || ["no.", "no"].includes(label)) {
+    return 72;
+  }
+
+  if (
+    column?.columnType === "textarea" ||
+    ["itemname", "item_name", "method", "criteria", "tujuan", "konten", "item", "metodepengecekan", "penilaian"].includes(columnKey)
+  ) {
+    return 220;
+  }
+
+  return 140;
+}
+
+function getTemplateColumnWidth(column) {
+  const columnOptions = parseColumnOptions(column?.optionsJson);
+  return clampTemplateColumnWidth(columnOptions.widthPx) ?? getDefaultTemplateColumnWidth(column);
+}
+
+function isColumnSpanEnabled(column) {
+  const columnOptions = parseColumnOptions(column?.optionsJson);
+  return columnOptions.enableColSpan ?? false;
+}
+
+function normalizeHeaderLabel(value) {
+  return String(value ?? "").trim();
+}
+
+function buildHeaderGroups(columns) {
+  const groups = [];
+  let columnIndex = 0;
+
+  while (columnIndex < columns.length) {
+    const column = columns[columnIndex];
+    const label = normalizeHeaderLabel(column?.label);
+    const canMerge = isColumnSpanEnabled(column);
+    let colSpan = 1;
+    let width = getTemplateColumnWidth(column);
+
+    if (canMerge && label) {
+      let nextIndex = columnIndex + 1;
+
+      while (
+        nextIndex < columns.length &&
+        isColumnSpanEnabled(columns[nextIndex]) &&
+        normalizeHeaderLabel(columns[nextIndex]?.label) === label
+      ) {
+        width += getTemplateColumnWidth(columns[nextIndex]);
+        colSpan += 1;
+        nextIndex += 1;
+      }
+    }
+
+    groups.push({
+      column,
+      columnIndex,
+      colSpan,
+      width
+    });
+    columnIndex += colSpan;
+  }
+
+  return groups;
+}
+
 function normalizeMergeValue(value) {
   return String(value ?? "").trim();
 }
@@ -712,15 +801,13 @@ function renderApprovalChip(person) {
 }
 
 function getMonthlySheetColumnSx(column, columnIndex) {
-  const columnKey = column?.key ?? column?.columnKey ?? column;
   const isImageColumn = column?.columnType === "image";
-  const isNumberColumn = columnKey === "itemNo";
-  const isLongTextColumn = ["itemName", "method", "criteria", "tujuan", "konten", "item", "metodePengecekan", "penilaian"].includes(columnKey);
+  const width = column?.headerWidth ?? getTemplateColumnWidth(column);
 
   return {
-    width: isImageColumn ? "auto" : isNumberColumn ? 72 : isLongTextColumn ? 220 : 140,
-    minWidth: isImageColumn ? "max-content" : isNumberColumn ? 72 : isLongTextColumn ? 160 : 120,
-    maxWidth: isImageColumn ? "none" : isNumberColumn ? 72 : isLongTextColumn ? 220 : 160,
+    width,
+    minWidth: width,
+    maxWidth: width,
     pl: columnIndex === 0 ? 3 : 2,
     py: 1.25,
     whiteSpace: isImageColumn ? "nowrap" : "normal",
@@ -728,6 +815,17 @@ function getMonthlySheetColumnSx(column, columnIndex) {
     overflowWrap: "anywhere",
     lineHeight: 1.35
   };
+}
+
+function mapTemplateColumns(templateColumns) {
+  return (templateColumns ?? []).map((column) => ({
+    key: column.columnKey,
+    columnKey: column.columnKey,
+    label: column.label,
+    columnType: column.columnType,
+    optionsJson: column.optionsJson,
+    enableRowSpan: column.enableRowSpan
+  }));
 }
 
 function getMonthDayCellSx(backgroundColor, interactive = false) {
@@ -925,16 +1023,9 @@ export default function ChecksheetSubmissionMonthlyPage() {
     return isApprover && !hasResponded;
   }, [currentMonthEndApprovalStep, monthlyView?.status, referenceView?.currentApprovalRequestId, user?.id]);
   const displayColumns = useMemo(() => {
-    const templateColumns = referenceView?.templateColumns ?? [];
+    const templateColumns = monthlyView?.templateColumns ?? [];
     if (templateColumns.length > 0) {
-      return templateColumns.map((column) => ({
-        key: column.columnKey,
-        columnKey: column.columnKey,
-        label: column.label,
-        columnType: column.columnType,
-        optionsJson: column.optionsJson,
-        enableRowSpan: column.enableRowSpan
-      }));
+      return mapTemplateColumns(templateColumns);
     }
 
     const firstItem = monthlyItems[0];
@@ -947,10 +1038,18 @@ export default function ChecksheetSubmissionMonthlyPage() {
       label: toTitleCase(key),
       columnType: "text"
     }));
-  }, [monthlyItems, referenceView?.templateColumns]);
+  }, [monthlyItems, monthlyView?.templateColumns]);
   const monthlyRowSpanMap = useMemo(
     () => buildRowSpanMap(monthlyItems, displayColumns, (item, column) => item?.itemData?.[column.key]),
     [displayColumns, monthlyItems]
+  );
+  const displayColumnWidthTotal = useMemo(
+    () => displayColumns.reduce((total, column) => total + getTemplateColumnWidth(column), 0),
+    [displayColumns]
+  );
+  const displayHeaderGroups = useMemo(
+    () => buildHeaderGroups(displayColumns),
+    [displayColumns]
   );
   const entryColumns = useMemo(
     () => buildEntryColumns(monthlyView, inspectionEntryMode, false),
@@ -1267,16 +1366,9 @@ export default function ChecksheetSubmissionMonthlyPage() {
       ...(isModeRegular ? modeView?.regularApprovalSteps ?? [] : modeView?.dailyApprovalSteps ?? [])
     ].sort((left, right) => left.stepOrder - right.stepOrder);
     const modeDisplayColumns = (() => {
-      const templateColumns = referenceView?.templateColumns ?? [];
+      const templateColumns = modeView?.templateColumns ?? [];
       if (templateColumns.length > 0) {
-        return templateColumns.map((column) => ({
-          key: column.columnKey,
-          columnKey: column.columnKey,
-          label: column.label,
-          columnType: column.columnType,
-          optionsJson: column.optionsJson,
-          enableRowSpan: column.enableRowSpan
-        }));
+        return mapTemplateColumns(templateColumns);
       }
       const firstItem = modeItems[0];
       if (!firstItem?.itemData) {
@@ -1290,6 +1382,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
     })();
     const modeRowSpanMap = buildRowSpanMap(modeItems, modeDisplayColumns, (item, column) => item?.itemData?.[column.key]);
     const modeEntryColumns = buildEntryColumns(modeView, modeInspectionEntryMode, isModeRegular);
+    const modeDisplayColumnWidthTotal = modeDisplayColumns.reduce((total, column) => total + getTemplateColumnWidth(column), 0);
+    const modeHeaderGroups = buildHeaderGroups(modeDisplayColumns);
     const modeDaySummaryMap = new Map((modeView?.daySummaries ?? []).map((daySummary) => [getEntryColumnKey(daySummary, modeInspectionEntryMode), daySummary]));
     const modeSelectedEntry = selectedMode === mode && selectedTemplateId === modeTemplateId && modeEntryColumns.some((entry) => entry.key === selectedEntryKey)
       ? selectedEntryKey
@@ -1325,7 +1419,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
             stickyHeader
             size="small"
             sx={{
-              minWidth: Math.max(880, modeDisplayColumns.length * 140 + modeEntryColumns.length * MONTH_DAY_COLUMN_WIDTH),
+              minWidth: Math.max(880, modeDisplayColumnWidthTotal + modeEntryColumns.length * MONTH_DAY_COLUMN_WIDTH),
               tableLayout: "auto",
               "& .MuiTableCell-root": {
                 borderRight: 1,
@@ -1336,7 +1430,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 borderRight: 0
               },
               "& .MuiTableHead-root .MuiTableCell-root": {
-                fontWeight: 700
+                fontWeight: 700,
+                textAlign: "center"
               },
               "& .MuiTableCell-root[data-merged='true']": {
                 verticalAlign: "middle"
@@ -1345,12 +1440,13 @@ export default function ChecksheetSubmissionMonthlyPage() {
           >
             <TableHead>
               <TableRow>
-                {modeDisplayColumns.map((column, columnIndex) => (
+                {modeHeaderGroups.map(({ column, columnIndex, colSpan, width }) => (
                   <TableCell
                     key={`${mode}-${column.key}`}
+                    colSpan={colSpan}
                     sx={{
                       bgcolor: "#f8fafc",
-                      ...getMonthlySheetColumnSx(column, columnIndex)
+                      ...getMonthlySheetColumnSx({ ...column, headerWidth: width }, columnIndex)
                     }}
                   >
                     {column.label}
@@ -1886,7 +1982,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     <Table
                       size="small"
                       sx={{
-                        minWidth: Math.max(860, displayColumns.length * 180 + 460),
+                        minWidth: Math.max(860, displayColumnWidthTotal + ENTRY_COLUMN_WIDTH + REMARK_COLUMN_WIDTH),
                         tableLayout: "auto",
                         "& .MuiTableCell-root": {
                           borderRight: 1,
@@ -1897,28 +1993,23 @@ export default function ChecksheetSubmissionMonthlyPage() {
                           wordBreak: "break-word"
                         },
                         "& .MuiTableCell-root:last-of-type": { borderRight: 0 },
-                        "& .MuiTableHead-root .MuiTableCell-root": { fontWeight: 700 },
+                        "& .MuiTableHead-root .MuiTableCell-root": { fontWeight: 700, textAlign: "center" },
                         "& .MuiTableCell-root[data-merged='true']": { verticalAlign: "middle" }
                       }}
                     >
                       <TableHead>
                         <TableRow>
-                          {displayColumns.map((column, columnIndex) => (
+                          {displayHeaderGroups.map(({ column, columnIndex, colSpan, width }) => (
                             <TableCell
                               key={column.key}
-                              sx={{
-                                width: column.columnType === "image" ? "auto" : column.key === "itemNo" ? 90 : 180,
-                                minWidth: column.columnType === "image" ? "max-content" : column.key === "itemNo" ? 90 : 180,
-                                maxWidth: column.columnType === "image" ? "none" : undefined,
-                                whiteSpace: column.columnType === "image" ? "nowrap" : undefined,
-                                pl: columnIndex === 0 ? 3 : 2
-                              }}
+                              colSpan={colSpan}
+                              sx={getMonthlySheetColumnSx({ ...column, headerWidth: width }, columnIndex)}
                             >
                               {column.label}
                             </TableCell>
                           ))}
-                          <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>Entry</TableCell>
-                          <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>Remark</TableCell>
+                          <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>Entry</TableCell>
+                          <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>Remark</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -1938,13 +2029,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                   data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                                   sx={{
                                     verticalAlign: "middle",
-                                    overflowWrap: "anywhere",
-                                    wordBreak: "break-word",
-                                    width: column.columnType === "image" ? "auto" : column.key === "itemNo" ? 90 : 180,
-                                    minWidth: column.columnType === "image" ? "max-content" : column.key === "itemNo" ? 90 : 180,
-                                    maxWidth: column.columnType === "image" ? "none" : undefined,
-                                    whiteSpace: column.columnType === "image" ? "nowrap" : "normal",
-                                    pl: columnIndex === 0 ? 3 : 2
+                                    ...getMonthlySheetColumnSx(column, columnIndex)
                                   }}
                                 >
                                   {(mergeCell?.rowSpan ?? 1) > 1 ? (
@@ -1957,7 +2042,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 </TableCell>
                               );
                             })}
-                            <TableCell sx={{ width: 220, minWidth: 220, pl: 2 }}>
+                            <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>
                               {((inspectionEntryMode === "free_text" ? selectedEntry?.valueType ?? "free_text" : item.valueType ?? "fixed")) === "fixed" ? (
                                 <ButtonGroup
                                   size="small"
@@ -2036,7 +2121,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                 />
                               )}
                             </TableCell>
-                            <TableCell sx={{ width: 240, minWidth: 240, pl: 2 }}>
+                            <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>
                               <TextField
                                 value={entryValues[item.templateItemId]?.remark ?? ""}
                                 onChange={(e) => handleInspectionValueChange(item.templateItemId, { remark: e.target.value })}
