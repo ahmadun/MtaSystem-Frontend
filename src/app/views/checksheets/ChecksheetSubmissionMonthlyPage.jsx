@@ -61,6 +61,8 @@ const ENTRY_COLUMN_WIDTH = 220;
 const REMARK_COLUMN_WIDTH = 240;
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
+const ITEM_CELL_TYPES_KEY = "__cellTypes";
+const TEMPLATE_CELL_TYPES = ["text", "textarea", "image"];
 
 function getImageUrl(value) {
   if (!value) return "";
@@ -117,8 +119,49 @@ function isImageCellValue(value) {
   return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
 }
 
-function TemplateItemCellContent({ column, value }) {
-  if (column.columnType !== "image" && !isImageCellValue(value)) {
+function parseItemCellTypes(value) {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value).reduce((next, [columnKey, cellType]) => {
+      if (TEMPLATE_CELL_TYPES.includes(cellType)) {
+        next[columnKey] = cellType;
+      }
+      return next;
+    }, {});
+  }
+
+  try {
+    return parseItemCellTypes(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function getExplicitCellType(column, item) {
+  return parseItemCellTypes(item?.itemData?.[ITEM_CELL_TYPES_KEY])[column.key ?? column.columnKey] ?? null;
+}
+
+function isTemplateImageCell(column, item, value) {
+  const explicitCellType = getExplicitCellType(column, item);
+
+  if (explicitCellType) {
+    return explicitCellType === "image";
+  }
+
+  return column.columnType === "image" || isImageCellValue(value);
+}
+
+function TemplateItemCellContent({ column, item, value }) {
+  const explicitCellType = getExplicitCellType(column, item);
+
+  if (explicitCellType && explicitCellType !== "image") {
+    return value || "-";
+  }
+
+  if (!isTemplateImageCell(column, item, value)) {
     return value || "-";
   }
 
@@ -133,9 +176,10 @@ function TemplateItemCellContent({ column, value }) {
       src={imageUrl}
       alt={column.label}
       sx={{
-        width: "100%",
-        maxHeight: 160,
-        objectFit: "contain",
+        width: "auto",
+        height: "auto",
+        maxWidth: "none",
+        maxHeight: "none",
         display: "block",
         border: 1,
         borderColor: "divider",
@@ -805,9 +849,9 @@ function getMonthlySheetColumnSx(column, columnIndex) {
   const width = column?.headerWidth ?? getTemplateColumnWidth(column);
 
   return {
-    width,
-    minWidth: width,
-    maxWidth: width,
+    width: isImageColumn ? "max-content" : width,
+    minWidth: isImageColumn ? width : width,
+    maxWidth: isImageColumn ? "none" : width,
     pl: columnIndex === 0 ? 3 : 2,
     py: 1.25,
     whiteSpace: isImageColumn ? "nowrap" : "normal",
@@ -1483,6 +1527,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                 <TableRow key={`${mode}-${item.templateItemId}`} hover>
                   {modeDisplayColumns.map((column, columnIndex) => {
                     const mergeCell = modeRowSpanMap[column.key]?.[rowIndex];
+                    const cellValue = item.itemData?.[column.key];
+                    const isImageCell = isTemplateImageCell(column, item, cellValue);
 
                     if (mergeCell?.hidden) {
                       return null;
@@ -1495,15 +1541,25 @@ export default function ChecksheetSubmissionMonthlyPage() {
                         data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                         sx={{
                           verticalAlign: "middle",
-                          ...getMonthlySheetColumnSx(column, columnIndex)
+                          ...getMonthlySheetColumnSx(column, columnIndex),
+                          ...(isImageCell
+                            ? {
+                              width: "max-content",
+                              minWidth: "max-content",
+                              maxWidth: "none",
+                              whiteSpace: "nowrap",
+                              overflowWrap: "normal",
+                              wordBreak: "normal"
+                            }
+                            : {})
                         }}
                       >
                         {(mergeCell?.rowSpan ?? 1) > 1 ? (
-                          <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%", width: "100%" }}>
-                            <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
+                          <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
+                            <TemplateItemCellContent column={column} item={item} value={cellValue} />
                           </Box>
                         ) : (
-                          <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
+                          <TemplateItemCellContent column={column} item={item} value={cellValue} />
                         )}
                       </TableCell>
                     );
@@ -2017,6 +2073,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
                           <TableRow key={item.templateItemId} hover>
                             {displayColumns.map((column, columnIndex) => {
                               const mergeCell = monthlyRowSpanMap[column.key]?.[rowIndex];
+                              const cellValue = item.itemData?.[column.key];
+                              const isImageCell = isTemplateImageCell(column, item, cellValue);
 
                               if (mergeCell?.hidden) {
                                 return null;
@@ -2027,19 +2085,29 @@ export default function ChecksheetSubmissionMonthlyPage() {
                                   key={`${item.templateItemId}-${column.key}`}
                                   rowSpan={mergeCell?.rowSpan ?? 1}
                                   data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
-                                  sx={{
-                                    verticalAlign: "middle",
-                                    ...getMonthlySheetColumnSx(column, columnIndex)
-                                  }}
-                                >
-                                  {(mergeCell?.rowSpan ?? 1) > 1 ? (
-                                    <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
-                                      <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
-                                    </Box>
-                                  ) : (
-                                    <TemplateItemCellContent column={column} value={item.itemData?.[column.key]} />
-                                  )}
-                                </TableCell>
+                                   sx={{
+                                     verticalAlign: "middle",
+                                     ...getMonthlySheetColumnSx(column, columnIndex),
+                                     ...(isImageCell
+                                       ? {
+                                         width: "max-content",
+                                         minWidth: "max-content",
+                                         maxWidth: "none",
+                                         whiteSpace: "nowrap",
+                                         overflowWrap: "normal",
+                                         wordBreak: "normal"
+                                       }
+                                       : {})
+                                   }}
+                                 >
+                                   {(mergeCell?.rowSpan ?? 1) > 1 ? (
+                                     <Box sx={{ display: "flex", alignItems: "center", minHeight: "100%", height: "100%" }}>
+                                       <TemplateItemCellContent column={column} item={item} value={cellValue} />
+                                     </Box>
+                                   ) : (
+                                     <TemplateItemCellContent column={column} item={item} value={cellValue} />
+                                   )}
+                                 </TableCell>
                               );
                             })}
                             <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>

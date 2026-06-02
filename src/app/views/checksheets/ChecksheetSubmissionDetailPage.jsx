@@ -62,6 +62,8 @@ const FIXED_OPTIONS = ["OK", "NG", "FIX"];
 const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
+const ITEM_CELL_TYPES_KEY = "__cellTypes";
+const TEMPLATE_CELL_TYPES = ["text", "textarea", "image"];
 
 function getImageUrl(value) {
   if (!value) return "";
@@ -118,8 +120,49 @@ function isImageCellValue(value) {
   return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
 }
 
-function TemplateItemCellContent({ column, value }) {
-  if (column.columnType !== "image" && !isImageCellValue(value)) {
+function parseItemCellTypes(value) {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value).reduce((next, [columnKey, cellType]) => {
+      if (TEMPLATE_CELL_TYPES.includes(cellType)) {
+        next[columnKey] = cellType;
+      }
+      return next;
+    }, {});
+  }
+
+  try {
+    return parseItemCellTypes(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function getExplicitCellType(column, item) {
+  return parseItemCellTypes(item?.data?.[ITEM_CELL_TYPES_KEY])[column.columnKey] ?? null;
+}
+
+function isTemplateImageCell(column, item, value) {
+  const explicitCellType = getExplicitCellType(column, item);
+
+  if (explicitCellType) {
+    return explicitCellType === "image";
+  }
+
+  return column.columnType === "image" || isImageCellValue(value);
+}
+
+function TemplateItemCellContent({ column, item, value }) {
+  const explicitCellType = getExplicitCellType(column, item);
+
+  if (explicitCellType && explicitCellType !== "image") {
+    return value || "-";
+  }
+
+  if (!isTemplateImageCell(column, item, value)) {
     return value || "-";
   }
 
@@ -135,9 +178,10 @@ function TemplateItemCellContent({ column, value }) {
       src={imageUrl}
       alt={column.label}
       sx={{
-        width: "100%",
-        maxHeight: 160,
-        objectFit: "contain",
+        width: "auto",
+        height: "auto",
+        maxWidth: "none",
+        maxHeight: "none",
         display: "block",
         border: 1,
         borderColor: "divider",
@@ -672,9 +716,9 @@ function getTemplateColumnCellSx(column, columnIndex, width) {
 
   return {
     pl: columnIndex === 0 ? 3 : 2,
-    width,
-    minWidth: width,
-    maxWidth: width,
+    width: isImageColumn ? "max-content" : width,
+    minWidth: isImageColumn ? width : width,
+    maxWidth: isImageColumn ? "none" : width,
     whiteSpace: isImageColumn ? "nowrap" : "normal",
     overflowWrap: "anywhere",
     wordBreak: "break-word"
@@ -1758,6 +1802,8 @@ export default function ChecksheetSubmissionDetailPage() {
                       <TableRow key={item.id} hover>
                         {templateColumns.map((column, columnIndex) => {
                           const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
+                          const cellValue = item.data?.[column.columnKey];
+                          const isImageCell = isTemplateImageCell(column, item, cellValue);
 
                           if (mergeCell?.hidden) {
                             return null;
@@ -1770,10 +1816,20 @@ export default function ChecksheetSubmissionDetailPage() {
                               data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
                               sx={{
                                 ...getTemplateColumnCellSx(column, columnIndex, templateColumnWidths[columnIndex]),
+                                ...(isImageCell
+                                  ? {
+                                    width: "max-content",
+                                    minWidth: "max-content",
+                                    maxWidth: "none",
+                                    whiteSpace: "nowrap",
+                                    overflowWrap: "normal",
+                                    wordBreak: "normal"
+                                  }
+                                  : {}),
                                 verticalAlign: "middle",
                               }}
                             >
-                              <TemplateItemCellContent column={column} value={item.data?.[column.columnKey]} />
+                              <TemplateItemCellContent column={column} item={item} value={cellValue} />
                             </TableCell>
                           );
                         })}

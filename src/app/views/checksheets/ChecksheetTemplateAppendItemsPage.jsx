@@ -15,6 +15,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
@@ -35,11 +36,51 @@ const ITEM_VALUE_TYPES = [
   { value: "jig_no_check", label: "Jig No Check" }
 ];
 
+const COLUMN_TYPES = [
+  { value: "text", label: "Text" },
+  { value: "textarea", label: "Textarea" },
+  { value: "image", label: "Image" }
+];
+
+const ITEM_CELL_TYPES_KEY = "__cellTypes";
+
 function createItemFromColumns(columns, sortOrder) {
   const next = { sortOrder, valueType: "fixed" };
   columns.forEach((column) => {
     next[column.columnKey] = column.columnKey === "itemNo" ? String(sortOrder + 1) : "";
   });
+  return next;
+}
+
+function isItemNumberColumn(column) {
+  const columnKey = String(column?.columnKey ?? "").trim().toLowerCase();
+  const label = String(column?.label ?? "").trim().toLowerCase();
+  return ["no", "itemno", "item_no"].includes(columnKey) || ["no.", "no"].includes(label);
+}
+
+function createItemFromSource(columns, sourceItem, sortOrder) {
+  if (!sourceItem) {
+    return createItemFromColumns(columns, sortOrder);
+  }
+
+  const sourceData = sourceItem.data ?? sourceItem;
+  const next = {
+    sortOrder,
+    valueType: sourceItem.valueType ?? "fixed"
+  };
+
+  columns.forEach((column) => {
+    const sourceValue = sourceData[column.columnKey] ?? "";
+    next[column.columnKey] = isItemNumberColumn(column) && !column.enableRowSpan
+      ? String(sortOrder + 1)
+      : sourceValue;
+  });
+
+  const cellTypes = sourceData[ITEM_CELL_TYPES_KEY] ?? sourceItem[ITEM_CELL_TYPES_KEY];
+  if (cellTypes) {
+    next[ITEM_CELL_TYPES_KEY] = serializeAllItemCellTypes(cellTypes);
+  }
+
   return next;
 }
 
@@ -65,6 +106,61 @@ function getImageUrl(value) {
   return normalizedPath.startsWith("uploads/") ? `/${normalizedPath}` : normalizedPath;
 }
 
+function isImageCellValue(value) {
+  const url = getImageUrl(value);
+  return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
+}
+
+function normalizeColumnType(columnType) {
+  return COLUMN_TYPES.some((option) => option.value === columnType) ? columnType : "text";
+}
+
+function parseItemCellTypes(value) {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value).reduce((next, [columnKey, cellType]) => {
+      if (COLUMN_TYPES.some((option) => option.value === cellType)) {
+        next[columnKey] = cellType;
+      }
+      return next;
+    }, {});
+  }
+
+  try {
+    return parseItemCellTypes(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function serializeItemCellTypes(cellTypes, columns) {
+  const validColumnKeys = new Set(columns.map((column) => column.columnKey));
+  const normalized = Object.entries(parseItemCellTypes(cellTypes)).reduce((next, [columnKey, cellType]) => {
+    if (validColumnKeys.has(columnKey) && COLUMN_TYPES.some((option) => option.value === cellType)) {
+      next[columnKey] = cellType;
+    }
+    return next;
+  }, {});
+
+  return Object.keys(normalized).length ? JSON.stringify(normalized) : null;
+}
+
+function serializeAllItemCellTypes(cellTypes) {
+  const normalized = parseItemCellTypes(cellTypes);
+  return Object.keys(normalized).length ? JSON.stringify(normalized) : "";
+}
+
+function getItemCellTypes(item) {
+  return parseItemCellTypes(item?.data?.[ITEM_CELL_TYPES_KEY] ?? item?.[ITEM_CELL_TYPES_KEY]);
+}
+
+function getEffectiveCellType(column, item) {
+  return getItemCellTypes(item)[column.columnKey] ?? normalizeColumnType(column.columnType);
+}
+
 function getColumnImageOptions(existingItems, newItems, columnKey) {
   return [
     ...new Set(
@@ -75,8 +171,14 @@ function getColumnImageOptions(existingItems, newItems, columnKey) {
   ];
 }
 
-function ReadOnlyCell({ column, value }) {
-  if (column.columnType === "image") {
+function ReadOnlyCell({ column, item, value }) {
+  const explicitCellType = getItemCellTypes(item)[column.columnKey] ?? null;
+
+  if (explicitCellType && explicitCellType !== "image") {
+    return value || "-";
+  }
+
+  if ((explicitCellType ?? column.columnType) === "image" || isImageCellValue(value)) {
     const imageUrl = getImageUrl(value);
     return imageUrl ? (
       <Box
@@ -102,6 +204,7 @@ function ReadOnlyCell({ column, value }) {
 function NewItemField({ column, item, itemIndex, existingItems, newItems, setNewItems }) {
   const uploadMutation = useUploadChecksheetTemplateImage();
   const value = item[column.columnKey] ?? "";
+  const effectiveCellType = getEffectiveCellType(column, item);
 
   const updateValue = (nextValue) => {
     setNewItems((current) =>
@@ -111,17 +214,75 @@ function NewItemField({ column, item, itemIndex, existingItems, newItems, setNew
     );
   };
 
-  if (column.columnType !== "image") {
+  const updateCellType = (nextCellType) => {
+    setNewItems((current) =>
+      current.map((currentItem, currentIndex) => {
+        if (currentIndex !== itemIndex) {
+          return currentItem;
+        }
+
+        const cellTypes = getItemCellTypes(currentItem);
+        if (nextCellType === normalizeColumnType(column.columnType)) {
+          delete cellTypes[column.columnKey];
+        } else {
+          cellTypes[column.columnKey] = nextCellType;
+        }
+
+        return {
+          ...currentItem,
+          [ITEM_CELL_TYPES_KEY]: serializeAllItemCellTypes(cellTypes)
+        };
+      })
+    );
+  };
+
+  if (effectiveCellType !== "image") {
     return (
-      <TextField
-        label={column.label}
-        value={value}
-        multiline={column.columnType === "textarea"}
-        minRows={column.columnType === "textarea" ? 2 : undefined}
-        onChange={(event) => updateValue(event.target.value)}
-        size="small"
-        fullWidth
-      />
+      <Box
+        sx={{
+          position: "relative",
+          "& .append-cell-attach-image": {
+            opacity: 0,
+            pointerEvents: "none",
+            transition: "opacity 120ms ease"
+          },
+          "&:focus-within .append-cell-attach-image": {
+            opacity: 1,
+            pointerEvents: "auto"
+          }
+        }}
+      >
+        <TextField
+          label={column.label}
+          value={value}
+          multiline={effectiveCellType === "textarea"}
+          minRows={effectiveCellType === "textarea" ? 2 : undefined}
+          onChange={(event) => updateValue(event.target.value)}
+          size="small"
+          fullWidth
+        />
+        <Tooltip title="Attach image to this cell">
+          <IconButton
+            className="append-cell-attach-image"
+            size="small"
+            onClick={() => updateCellType("image")}
+            sx={{
+              position: "absolute",
+              top: 5,
+              right: 5,
+              width: 28,
+              height: 28,
+              bgcolor: "background.paper",
+              border: 1,
+              borderColor: "divider",
+              boxShadow: 1,
+              "&:hover": { bgcolor: "background.default" }
+            }}
+          >
+            <CloudUploadIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
     );
   }
 
@@ -139,9 +300,14 @@ function NewItemField({ column, item, itemIndex, existingItems, newItems, setNew
 
   return (
     <Stack spacing={1}>
-      <Typography variant="caption" color="text.secondary">
-        {column.label}
-      </Typography>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ sm: "center" }}>
+        <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+          {column.label}
+        </Typography>
+        <Button size="small" onClick={() => updateCellType(normalizeColumnType(column.columnType))}>
+          Use Text
+        </Button>
+      </Stack>
       {imageUrl && (
         <Box
           component="img"
@@ -206,7 +372,11 @@ export default function ChecksheetTemplateAppendItemsPage() {
   const canAppend = !!template?.id && isDraft && isOwner;
 
   const addRow = () => {
-    setNewItems((current) => [...current, createItemFromColumns(columns, maxSortOrder + current.length + 1)]);
+    setNewItems((current) => {
+      const nextSortOrder = maxSortOrder + current.length + 1;
+      const sourceItem = current[current.length - 1] ?? existingItems[existingItems.length - 1] ?? null;
+      return [...current, createItemFromSource(columns, sourceItem, nextSortOrder)];
+    });
   };
 
   const handleSave = async () => {
@@ -218,6 +388,10 @@ export default function ChecksheetTemplateAppendItemsPage() {
         columns.forEach((column) => {
           data[column.columnKey] = item[column.columnKey] ?? "";
         });
+        const cellTypesJson = serializeItemCellTypes(item[ITEM_CELL_TYPES_KEY], columns);
+        if (cellTypesJson) {
+          data[ITEM_CELL_TYPES_KEY] = cellTypesJson;
+        }
         return {
           sortOrder: maxSortOrder + index + 1,
           valueType: item.valueType ?? "fixed",
@@ -295,7 +469,7 @@ export default function ChecksheetTemplateAppendItemsPage() {
                   <TableRow key={item.id}>
                     {columns.map((column) => (
                       <TableCell key={column.columnKey} sx={{ verticalAlign: "middle" }}>
-                        <ReadOnlyCell column={column} value={item.data?.[column.columnKey]} />
+                        <ReadOnlyCell column={column} item={item} value={item.data?.[column.columnKey]} />
                       </TableCell>
                     ))}
                     <TableCell sx={{ verticalAlign: "middle" }}>{item.valueType}</TableCell>

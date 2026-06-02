@@ -22,13 +22,19 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from "@mui/material";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import AddIcon from "@mui/icons-material/Add";
+import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";
 import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import ContentCopyOutlinedIcon from "@mui/icons-material/ContentCopyOutlined";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
+import RefreshIcon from "@mui/icons-material/Refresh";
 import { authRoles } from "app/auth/authRoles";
 import useAuth from "app/hooks/useAuth";
 import { ConfirmationDialog } from "app/components";
@@ -46,6 +52,8 @@ const COLUMN_TYPES = [
   { value: "textarea", label: "Textarea" },
   { value: "image", label: "Image" }
 ];
+
+const ITEM_CELL_TYPES_KEY = "__cellTypes";
 
 const ITEM_VALUE_TYPES = [
   { value: "fixed", label: "Fixed (OK/NG/FIX)" },
@@ -249,6 +257,52 @@ function normalizeColumnType(columnType) {
   return COLUMN_TYPES.some((option) => option.value === columnType) ? columnType : "text";
 }
 
+function parseItemCellTypes(value) {
+  if (!value) {
+    return {};
+  }
+
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return Object.entries(value).reduce((next, [columnKey, cellType]) => {
+      if (COLUMN_TYPES.some((option) => option.value === cellType)) {
+        next[columnKey] = cellType;
+      }
+      return next;
+    }, {});
+  }
+
+  try {
+    return parseItemCellTypes(JSON.parse(value));
+  } catch {
+    return {};
+  }
+}
+
+function serializeItemCellTypes(cellTypes, columns) {
+  const validColumnKeys = new Set(columns.map((column) => column.columnKey));
+  const normalized = Object.entries(parseItemCellTypes(cellTypes)).reduce((next, [columnKey, cellType]) => {
+    if (validColumnKeys.has(columnKey) && COLUMN_TYPES.some((option) => option.value === cellType)) {
+      next[columnKey] = cellType;
+    }
+    return next;
+  }, {});
+
+  return Object.keys(normalized).length ? JSON.stringify(normalized) : null;
+}
+
+function serializeAllItemCellTypes(cellTypes) {
+  const normalized = parseItemCellTypes(cellTypes);
+  return Object.keys(normalized).length ? JSON.stringify(normalized) : "";
+}
+
+function getItemCellTypes(item) {
+  return parseItemCellTypes(item?.[ITEM_CELL_TYPES_KEY]);
+}
+
+function getEffectiveCellType(column, item) {
+  return getItemCellTypes(item)[column.columnKey] ?? normalizeColumnType(column.columnType);
+}
+
 function syncItemKeys(items, previousKey, nextKey) {
   if (!previousKey || previousKey === nextKey) {
     return items;
@@ -256,6 +310,14 @@ function syncItemKeys(items, previousKey, nextKey) {
 
   return items.map((item) => {
     const nextItem = { ...item };
+    const cellTypes = getItemCellTypes(nextItem);
+
+    if (cellTypes[previousKey]) {
+      cellTypes[nextKey] = cellTypes[previousKey];
+      delete cellTypes[previousKey];
+      nextItem[ITEM_CELL_TYPES_KEY] = serializeAllItemCellTypes(cellTypes);
+    }
+
     nextItem[nextKey] = item[previousKey] ?? "";
     delete nextItem[previousKey];
     return nextItem;
@@ -276,6 +338,29 @@ function createItemFromColumns(columns, sortOrder) {
   return next;
 }
 
+function reindexItems(items) {
+  return items.map((item, index) => ({ ...item, sortOrder: index }));
+}
+
+function refreshItemNumbers(items, columns) {
+  return items.map((item, index) => {
+    const nextItem = { ...item, sortOrder: index };
+    columns.forEach((column) => {
+      if (isItemNumberColumn(column)) {
+        nextItem[column.columnKey] = String(index + 1);
+      }
+    });
+    return nextItem;
+  });
+}
+
+function duplicateItem(item, sortOrder) {
+  return {
+    ...item,
+    sortOrder
+  };
+}
+
 function getColumnImageOptions(items, columnKey) {
   return [
     ...new Set(
@@ -286,31 +371,33 @@ function getColumnImageOptions(items, columnKey) {
   ];
 }
 
-function TemplateItemField({ column, item, itemIndex, items, setForm }) {
+function TemplateItemField({
+  column,
+  columnIndex,
+  item,
+  itemIndex,
+  items,
+  setForm,
+  compact = false,
+  isSelected = false,
+  onSelect,
+  onNavigate
+}) {
   const uploadMutation = useUploadChecksheetTemplateImage();
   const value = item[column.columnKey] ?? "";
-
-  if (column.columnType !== "image") {
-    return (
-      <TextField
-        label={column.label}
-        multiline={column.columnType === "textarea"}
-        minRows={column.columnType === "textarea" ? 2 : undefined}
-        value={value}
-        onChange={(event) =>
-          setForm((current) => ({
-            ...current,
-            items: current.items.map((currentItem, currentIndex) =>
-              currentIndex === itemIndex ? { ...currentItem, [column.columnKey]: event.target.value } : currentItem
-            )
-          }))
-        }
-        fullWidth
-      />
-    );
-  }
-
-  const existingImages = getColumnImageOptions(items, column.columnKey);
+  const effectiveCellType = getEffectiveCellType(column, item);
+  const fieldWidth = Math.max(resolveColumnWidth(column), compact ? 160 : 180);
+  const cellInputId = `${itemIndex}-${columnIndex}`;
+  const textFieldSx = compact ? {
+    minWidth: fieldWidth,
+    "& .MuiInputBase-root": {
+      bgcolor: "background.paper"
+    },
+    "& .MuiInputBase-input": {
+      fontSize: 13,
+      lineHeight: 1.35
+    }
+  } : undefined;
 
   const updateValue = (nextValue) => {
     setForm((current) => ({
@@ -320,6 +407,117 @@ function TemplateItemField({ column, item, itemIndex, items, setForm }) {
       )
     }));
   };
+
+  const updateCellType = (nextCellType) => {
+    setForm((current) => ({
+      ...current,
+      items: current.items.map((currentItem, currentIndex) => {
+        if (currentIndex !== itemIndex) {
+          return currentItem;
+        }
+
+        const cellTypes = getItemCellTypes(currentItem);
+        if (nextCellType === normalizeColumnType(column.columnType)) {
+          delete cellTypes[column.columnKey];
+        } else {
+          cellTypes[column.columnKey] = nextCellType;
+        }
+
+        return {
+          ...currentItem,
+          [ITEM_CELL_TYPES_KEY]: serializeAllItemCellTypes(cellTypes)
+        };
+      })
+    }));
+  };
+
+  const handleTextKeyDown = (event) => {
+    if (!compact) return;
+
+    if (event.key === "Tab") {
+      event.preventDefault();
+      onNavigate?.(event.shiftKey ? "previous" : "next");
+      return;
+    }
+
+    if (event.key === "Enter" && effectiveCellType !== "textarea") {
+      event.preventDefault();
+      onNavigate?.("down");
+    }
+  };
+
+  if (effectiveCellType !== "image") {
+    return (
+      <Box
+        className="template-item-cell"
+        onClick={onSelect}
+        data-template-cell-input={cellInputId}
+        sx={compact ? {
+          position: "relative",
+          minWidth: fieldWidth,
+          pb: 0.25,
+          "& .template-cell-action": {
+            opacity: isSelected ? 1 : 0,
+            pointerEvents: isSelected ? "auto" : "none",
+            transition: "opacity 120ms ease"
+          },
+          "&:focus-within .template-cell-action": {
+            opacity: 1,
+            pointerEvents: "auto"
+          },
+          "& .MuiInputBase-root": {
+            boxShadow: isSelected ? "0 0 0 2px rgba(25, 118, 210, 0.18)" : "none"
+          }
+        } : undefined}
+      >
+        <TextField
+          label={compact ? undefined : column.label}
+          placeholder={compact ? column.label : undefined}
+          size={compact ? "small" : undefined}
+          multiline={effectiveCellType === "textarea"}
+          minRows={effectiveCellType === "textarea" ? (compact ? 2 : 2) : undefined}
+          maxRows={compact && effectiveCellType === "textarea" ? 5 : undefined}
+          value={value}
+          onChange={(event) => updateValue(event.target.value)}
+          onFocus={onSelect}
+          onKeyDown={handleTextKeyDown}
+          fullWidth
+          sx={textFieldSx}
+        />
+        {compact ? (
+          <Tooltip title="Attach image to this cell">
+            <IconButton
+              className="template-cell-action"
+              size="small"
+              onClick={() => updateCellType("image")}
+              sx={{
+                position: "absolute",
+                top: 3,
+                right: 3,
+                width: 26,
+                height: 26,
+                bgcolor: "background.paper",
+                border: 1,
+                borderColor: "divider",
+                boxShadow: 1,
+                "&:hover": { bgcolor: "background.default" }
+              }}
+            >
+              <CloudUploadIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Box>
+            <Button size="small" variant="outlined" startIcon={<CloudUploadIcon />} onClick={() => updateCellType("image")}>
+              Attach Image
+            </Button>
+          </Box>
+        )}
+      </Box>
+    );
+  }
+
+  const existingImages = getColumnImageOptions(items, column.columnKey);
 
   const handleImageChange = async (event) => {
     const file = event.target.files?.[0];
@@ -331,18 +529,70 @@ function TemplateItemField({ column, item, itemIndex, items, setForm }) {
   };
 
   return (
-    <Stack spacing={1}>
-      <Typography variant="caption" color="text.secondary">
-        {column.label}
-      </Typography>
-      {value && (
+    <Box
+      className="template-item-cell template-image-cell"
+      onClick={onSelect}
+      onFocus={onSelect}
+      tabIndex={compact ? 0 : undefined}
+      sx={compact ? {
+        position: "relative",
+        minWidth: fieldWidth,
+        outline: 0,
+        boxShadow: isSelected ? "0 0 0 2px rgba(25, 118, 210, 0.18)" : "none",
+        borderRadius: 1,
+        "& .template-image-actions": {
+          opacity: isSelected ? 1 : 0,
+          pointerEvents: isSelected ? "auto" : "none",
+          transition: "opacity 120ms ease"
+        },
+        "& .template-image-mode-action": {
+          opacity: isSelected ? 1 : 0,
+          pointerEvents: isSelected ? "auto" : "none",
+          transition: "opacity 120ms ease"
+        }
+      } : undefined}
+    >
+      <Stack
+        className={compact ? "template-image-mode-action" : undefined}
+        direction="row"
+        spacing={0.5}
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{
+          mb: compact ? 0 : 1,
+          position: compact ? "absolute" : "static",
+          top: 3,
+          right: 3,
+          zIndex: 1
+        }}
+      >
+        {!compact && (
+          <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+            {column.label}
+          </Typography>
+        )}
+        {compact ? (
+          <Tooltip title="Use text input">
+            <IconButton size="small" onClick={() => updateCellType(normalizeColumnType(column.columnType))} sx={{ width: 28, height: 28 }}>
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        ) : (
+          <Button size="small" onClick={() => updateCellType(normalizeColumnType(column.columnType))}>
+            Use Text
+          </Button>
+        )}
+      </Stack>
+      {value ? (
         <Box
           component="img"
           src={value}
           alt={column.label}
           sx={{
-            width: "100%",
-            maxHeight: 180,
+            width: compact ? "100%" : "100%",
+            maxWidth: "100%",
+            height: compact ? 86 : "auto",
+            maxHeight: compact ? 86 : 180,
             objectFit: "contain",
             border: 1,
             borderColor: "divider",
@@ -350,23 +600,64 @@ function TemplateItemField({ column, item, itemIndex, items, setForm }) {
             bgcolor: "background.default"
           }}
         />
+      ) : (
+        compact && (
+          <Box
+            sx={{
+              height: 86,
+              border: 1,
+              borderStyle: "dashed",
+              borderColor: "divider",
+              borderRadius: 1,
+              bgcolor: "background.default"
+            }}
+          />
+        )
       )}
-      <Stack direction="row" spacing={1} alignItems="center">
-        <Button component="label" variant="outlined" size="small" startIcon={<CloudUploadIcon />} disabled={uploadMutation.isPending}>
-          {uploadMutation.isPending ? "Uploading..." : value ? "Replace Image" : "Upload Image"}
-          <input type="file" accept="image/*" hidden onChange={handleImageChange} />
-        </Button>
+      <Stack
+        className={compact ? "template-image-actions" : undefined}
+        direction="row"
+        spacing={0.75}
+        alignItems="center"
+        sx={compact ? {
+          position: value ? "absolute" : "static",
+          right: 6,
+          bottom: 6,
+          left: value ? 6 : "auto",
+          p: value ? 0.5 : 0,
+          mt: value ? 0 : 0.75,
+          borderRadius: 1,
+          bgcolor: value ? "rgba(255,255,255,0.94)" : "transparent",
+          boxShadow: value ? 1 : 0
+        } : undefined}
+      >
+        {compact ? (
+          <Tooltip title={uploadMutation.isPending ? "Uploading..." : value ? "Replace image" : "Upload image"}>
+            <span>
+              <IconButton component="label" size="small" disabled={uploadMutation.isPending} sx={{ width: 30, height: 30 }}>
+                <CloudUploadIcon fontSize="small" />
+                <input type="file" accept="image/*" hidden onChange={handleImageChange} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        ) : (
+          <Button component="label" variant="outlined" size="small" startIcon={<CloudUploadIcon />} disabled={uploadMutation.isPending}>
+            {uploadMutation.isPending ? "Uploading..." : value ? "Replace Image" : "Upload Image"}
+            <input type="file" accept="image/*" hidden onChange={handleImageChange} />
+          </Button>
+        )}
         <TextField
           select
           size="small"
-          label="Use Existing"
+          label={compact ? undefined : "Use Existing"}
+          placeholder={compact ? "Existing" : undefined}
           value=""
           onChange={(event) => updateValue(event.target.value)}
           disabled={uploadMutation.isPending || existingImages.length === 0}
-          sx={{ minWidth: 180 }}
+          sx={{ minWidth: compact ? 96 : 180, flex: compact ? 1 : "initial" }}
         >
           <MenuItem value="" disabled>
-            Select image
+            {compact ? "Existing" : "Select image"}
           </MenuItem>
           {existingImages.map((imageUrl, imageIndex) => (
             <MenuItem key={imageUrl} value={imageUrl}>
@@ -394,12 +685,22 @@ function TemplateItemField({ column, item, itemIndex, items, setForm }) {
           ))}
         </TextField>
         {value && (
-          <Button size="small" color="error" onClick={() => updateValue("")} disabled={uploadMutation.isPending}>
-            Remove
-          </Button>
+          compact ? (
+            <Tooltip title="Remove image">
+              <span>
+                <IconButton size="small" color="error" onClick={() => updateValue("")} disabled={uploadMutation.isPending} sx={{ width: 30, height: 30 }}>
+                  <DeleteOutlineIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : (
+            <Button size="small" color="error" onClick={() => updateValue("")} disabled={uploadMutation.isPending}>
+              Remove
+            </Button>
+          )
         )}
       </Stack>
-    </Stack>
+    </Box>
   );
 }
 
@@ -507,10 +808,14 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
   const createMutation = useCreateChecksheetTemplate();
   const updateMutation = useUpdateChecksheetTemplate(templateId);
   const [form, setForm] = useState(buildInitialForm(null));
+  const [selectedItemIndex, setSelectedItemIndex] = useState(0);
+  const [selectedColumnKey, setSelectedColumnKey] = useState(null);
 
   useEffect(() => {
     if (!isEnabled) return;
     setForm(buildInitialForm(detailQuery.data ?? null));
+    setSelectedItemIndex(0);
+    setSelectedColumnKey(null);
   }, [isEnabled, detailQuery.data]);
 
   const mutation = isEdit ? updateMutation : createMutation;
@@ -547,6 +852,10 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
           const sourceKey = form.columns[columnIndex]?.columnKey;
           data[column.columnKey] = item[sourceKey] ?? item[column.columnKey] ?? "";
         });
+        const cellTypesJson = serializeItemCellTypes(item[ITEM_CELL_TYPES_KEY], payloadColumns);
+        if (cellTypesJson) {
+          data[ITEM_CELL_TYPES_KEY] = cellTypesJson;
+        }
         return { sortOrder: index, valueType: item.valueType ?? "fixed", data };
       }),
       dailyApprovalSteps: form.dailyApprovalSteps
@@ -583,6 +892,148 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
     (form.inspectionEntryMode !== "free_text" || form.inspectionEntryOptions.some((option) => option.label.trim())) &&
     form.items.length > 0;
 
+  useEffect(() => {
+    setSelectedItemIndex((currentIndex) => {
+      if (form.items.length === 0) return 0;
+      return Math.min(Math.max(currentIndex, 0), form.items.length - 1);
+    });
+
+    setSelectedColumnKey((currentColumnKey) => {
+      if (!currentColumnKey) return null;
+      return form.columns.some((column) => column.columnKey === currentColumnKey) ? currentColumnKey : null;
+    });
+  }, [form.items.length, form.columns]);
+
+  const selectRow = (index) => {
+    setSelectedItemIndex(index);
+    setSelectedColumnKey(null);
+  };
+
+  const selectCell = (itemIndex, columnKey) => {
+    setSelectedItemIndex(itemIndex);
+    setSelectedColumnKey(columnKey);
+  };
+
+  const focusTemplateCell = (itemIndex, columnIndex) => {
+    window.setTimeout(() => {
+      const input = document.querySelector(`[data-template-cell-input="${itemIndex}-${columnIndex}"] textarea, [data-template-cell-input="${itemIndex}-${columnIndex}"] input`);
+      input?.focus();
+      input?.select?.();
+    }, 0);
+  };
+
+  const navigateItemCell = (itemIndex, columnIndex, direction) => {
+    if (!form.columns.length || !form.items.length) return;
+
+    let nextItemIndex = itemIndex;
+    let nextColumnIndex = columnIndex;
+
+    if (direction === "next") {
+      nextColumnIndex += 1;
+      if (nextColumnIndex >= form.columns.length) {
+        nextColumnIndex = 0;
+        nextItemIndex = Math.min(itemIndex + 1, form.items.length - 1);
+      }
+    } else if (direction === "previous") {
+      nextColumnIndex -= 1;
+      if (nextColumnIndex < 0) {
+        nextColumnIndex = form.columns.length - 1;
+        nextItemIndex = Math.max(itemIndex - 1, 0);
+      }
+    } else if (direction === "down") {
+      nextItemIndex = Math.min(itemIndex + 1, form.items.length - 1);
+    }
+
+    const nextColumn = form.columns[nextColumnIndex];
+    if (!nextColumn) return;
+
+    selectCell(nextItemIndex, nextColumn.columnKey);
+    focusTemplateCell(nextItemIndex, nextColumnIndex);
+  };
+
+  const addItemAtEnd = () => {
+    setForm((current) => {
+      const nextIndex = current.items.length;
+      setSelectedItemIndex(nextIndex);
+      setSelectedColumnKey(current.columns[0]?.columnKey ?? null);
+      return {
+        ...current,
+        items: reindexItems([...current.items, createItemFromColumns(current.columns, nextIndex)])
+      };
+    });
+  };
+
+  const insertItemAt = (index) => {
+    setForm((current) => {
+      const nextItems = [...current.items];
+      nextItems.splice(index, 0, createItemFromColumns(current.columns, index));
+      setSelectedItemIndex(index);
+      setSelectedColumnKey(current.columns[0]?.columnKey ?? null);
+      return { ...current, items: reindexItems(nextItems) };
+    });
+  };
+
+  const duplicateItemAt = (index) => {
+    setForm((current) => {
+      const sourceItem = current.items[index];
+      if (!sourceItem) return current;
+
+      const nextItems = [...current.items];
+      nextItems.splice(index + 1, 0, duplicateItem(sourceItem, index + 1));
+      setSelectedItemIndex(index + 1);
+      setSelectedColumnKey((currentColumnKey) => currentColumnKey ?? current.columns[0]?.columnKey ?? null);
+      return { ...current, items: reindexItems(nextItems) };
+    });
+  };
+
+  const moveItem = (index, direction) => {
+    setForm((current) => {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= current.items.length) {
+        return current;
+      }
+
+      const nextItems = [...current.items];
+      const [movedItem] = nextItems.splice(index, 1);
+      nextItems.splice(targetIndex, 0, movedItem);
+      setSelectedItemIndex(targetIndex);
+      return { ...current, items: reindexItems(nextItems) };
+    });
+  };
+
+  const deleteItemAt = (index) => {
+    setForm((current) => {
+      const nextItems = current.items.filter((_, itemIndex) => itemIndex !== index);
+      setSelectedItemIndex(Math.max(0, Math.min(index, nextItems.length - 1)));
+      setSelectedColumnKey(nextItems.length ? selectedColumnKey : null);
+      return {
+        ...current,
+        items: reindexItems(nextItems)
+      };
+    });
+  };
+
+  const refreshItemNumberColumns = () => {
+    setForm((current) => ({
+      ...current,
+      items: refreshItemNumbers(current.items, current.columns)
+    }));
+  };
+
+  const rowActionColumnWidth = 64;
+  const answerTypeColumnWidth = 180;
+  const selectedItem = form.items[selectedItemIndex] ?? null;
+  const selectedColumn = form.columns.find((column) => column.columnKey === selectedColumnKey) ?? null;
+  const selectedCellType = selectedColumn && selectedItem ? getEffectiveCellType(selectedColumn, selectedItem) : null;
+  const hasSelectedRow = !!selectedItem;
+  const selectedContextText = hasSelectedRow
+    ? `Row #${selectedItemIndex + 1}${selectedColumn ? ` - ${selectedColumn.label || selectedColumn.columnKey} (${selectedCellType})` : ""}`
+    : "No row selected";
+  const itemTableMinWidth = Math.max(
+    760,
+    rowActionColumnWidth + answerTypeColumnWidth + form.columns.reduce((total, column) => total + Math.max(resolveColumnWidth(column), 160), 0)
+  );
+
   const formGridSx = {
     display: "grid",
     gap: 2,
@@ -600,20 +1051,6 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
       xs: "minmax(0, 1fr)",
       md: "minmax(220px, 1.4fr) minmax(150px, 0.75fr) minmax(110px, 0.55fr) minmax(120px, 0.55fr) minmax(130px, 0.65fr) minmax(150px, 0.75fr) auto"
     },
-    alignItems: "start"
-  };
-
-  const itemHeaderSx = {
-    display: "grid",
-    gap: 1.5,
-    gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "minmax(0, 1fr) auto" },
-    alignItems: "center"
-  };
-
-  const itemFieldsGridSx = {
-    display: "grid",
-    gap: 1.5,
-    gridTemplateColumns: { xs: "minmax(0, 1fr)", md: "repeat(2, minmax(0, 1fr))" },
     alignItems: "start"
   };
 
@@ -842,19 +1279,192 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
 
           <Box>
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
-              <Typography variant="h6">Template Items</Typography>
-              <Button size="small" startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, items: [...current.items, createItemFromColumns(current.columns, current.items.length)] }))}>Add Item</Button>
+              <Box>
+                <Typography variant="h6">Template Items</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Edit item rows in the same column structure used by checksheet submissions.
+                </Typography>
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={refreshItemNumberColumns}>
+                  Refresh No.
+                </Button>
+                <Button size="small" startIcon={<AddIcon />} onClick={addItemAtEnd}>Add Row</Button>
+              </Stack>
             </Stack>
-            <Stack spacing={1.5}>
-              {form.items.map((item, index) => (
-                <Paper key={index} variant="outlined" sx={{ p: 2 }}>
-                  <Stack spacing={1.5}>
-                    <Box sx={itemHeaderSx}>
-                      <Typography variant="subtitle2">Item #{index + 1}</Typography>
-                      <Stack direction="row" spacing={1} alignItems="center">
+            <Paper
+              variant="outlined"
+              sx={{
+                mb: 1,
+                px: 1.25,
+                py: 1,
+                bgcolor: "#f8fafc"
+              }}
+            >
+              <Stack direction={{ xs: "column", md: "row" }} spacing={1} alignItems={{ xs: "stretch", md: "center" }} justifyContent="space-between">
+                <Stack spacing={0.25} sx={{ minWidth: 180 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Selected
+                  </Typography>
+                  <Typography variant="body2" fontWeight={700} noWrap>
+                    {selectedContextText}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                  <Tooltip title="Insert row above">
+                    <span>
+                      <Button size="small" variant="outlined" startIcon={<AddCircleOutlineIcon />} disabled={!hasSelectedRow} onClick={() => insertItemAt(selectedItemIndex)}>
+                        Above
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Insert row below">
+                    <span>
+                      <Button size="small" variant="outlined" startIcon={<AddIcon />} disabled={!hasSelectedRow} onClick={() => insertItemAt(selectedItemIndex + 1)}>
+                        Below
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Duplicate selected row">
+                    <span>
+                      <Button size="small" variant="outlined" startIcon={<ContentCopyOutlinedIcon />} disabled={!hasSelectedRow} onClick={() => duplicateItemAt(selectedItemIndex)}>
+                        Duplicate
+                      </Button>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Move selected row up">
+                    <span>
+                      <IconButton size="small" disabled={!hasSelectedRow || selectedItemIndex === 0} onClick={() => moveItem(selectedItemIndex, -1)}>
+                        <KeyboardArrowUpIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Move selected row down">
+                    <span>
+                      <IconButton size="small" disabled={!hasSelectedRow || selectedItemIndex === form.items.length - 1} onClick={() => moveItem(selectedItemIndex, 1)}>
+                        <KeyboardArrowDownIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="Delete selected row">
+                    <span>
+                      <IconButton size="small" color="error" disabled={!hasSelectedRow || form.items.length <= 1} onClick={() => deleteItemAt(selectedItemIndex)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+              </Stack>
+            </Paper>
+            <TableContainer component={Paper} variant="outlined" sx={{ overflowX: "auto", maxHeight: 620 }}>
+              <Table
+                size="small"
+                stickyHeader
+                sx={{
+                  minWidth: itemTableMinWidth,
+                  tableLayout: "auto",
+                  "& .MuiTableCell-root": {
+                    borderRight: 1,
+                    borderColor: "divider",
+                    verticalAlign: "top",
+                    px: 1,
+                    py: 0.75
+                  },
+                  "& .MuiTableCell-root:last-of-type": {
+                    borderRight: 0
+                  },
+                  "& .MuiTableHead-root .MuiTableCell-root": {
+                    bgcolor: "#f8fafc",
+                    fontWeight: 700,
+                    whiteSpace: "nowrap"
+                  }
+                }}
+              >
+                <TableHead>
+                  <TableRow>
+                    <TableCell
+                      sx={{
+                        position: "sticky",
+                        left: 0,
+                        zIndex: 5,
+                        width: rowActionColumnWidth,
+                        minWidth: rowActionColumnWidth,
+                        bgcolor: "#f8fafc"
+                      }}
+                    >
+                      Row
+                    </TableCell>
+                    <TableCell
+                      sx={{
+                        position: "sticky",
+                        left: rowActionColumnWidth,
+                        zIndex: 5,
+                        width: answerTypeColumnWidth,
+                        minWidth: answerTypeColumnWidth,
+                        bgcolor: "#f8fafc"
+                      }}
+                    >
+                      Answer Type
+                    </TableCell>
+                    {form.columns.map((column) => (
+                      <TableCell
+                        key={column.columnKey}
+                        sx={{
+                          width: Math.max(resolveColumnWidth(column), 160),
+                          minWidth: Math.max(resolveColumnWidth(column), 160)
+                        }}
+                      >
+                        {column.label || column.columnKey}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {form.items.map((item, index) => (
+                    <TableRow
+                      key={`template-item-row-${index}`}
+                      hover
+                      selected={index === selectedItemIndex}
+                      sx={{
+                        "&.Mui-selected > .MuiTableCell-root": {
+                          bgcolor: "rgba(25, 118, 210, 0.06)"
+                        },
+                        "&.Mui-selected:hover > .MuiTableCell-root": {
+                          bgcolor: "rgba(25, 118, 210, 0.09)"
+                        }
+                      }}
+                    >
+                      <TableCell
+                        onClick={() => selectRow(index)}
+                        sx={{
+                          position: "sticky",
+                          left: 0,
+                          zIndex: 2,
+                          width: rowActionColumnWidth,
+                          minWidth: rowActionColumnWidth,
+                          bgcolor: index === selectedItemIndex ? "rgba(25, 118, 210, 0.06)" : "background.paper",
+                          cursor: "pointer"
+                        }}
+                      >
+                        <Typography variant="caption" fontWeight={700}>
+                          #{index + 1}
+                        </Typography>
+                      </TableCell>
+                      <TableCell
+                        onFocus={() => selectRow(index)}
+                        onClick={() => selectRow(index)}
+                        sx={{
+                          position: "sticky",
+                          left: rowActionColumnWidth,
+                          zIndex: 2,
+                          width: answerTypeColumnWidth,
+                          minWidth: answerTypeColumnWidth,
+                          bgcolor: index === selectedItemIndex ? "rgba(25, 118, 210, 0.06)" : "background.paper"
+                        }}
+                      >
                         <TextField
                           select
-                          label="Answer Type"
+                          size="small"
                           value={item.valueType ?? "fixed"}
                           onChange={(event) =>
                             setForm((current) => ({
@@ -864,33 +1474,45 @@ function TemplateEditor({ open = true, mode, templateId, onClose, onSaved, embed
                               )
                             }))
                           }
-                          sx={{ minWidth: 220 }}
+                          fullWidth
+                          sx={{
+                            "& .MuiInputBase-input": {
+                              fontSize: 13
+                            }
+                          }}
                         >
                           {ITEM_VALUE_TYPES.map((option) => (
                             <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
                           ))}
                         </TextField>
-                        <IconButton color="error" disabled={form.items.length <= 1} onClick={() => setForm((current) => ({ ...current, items: current.items.filter((_, itemIndex) => itemIndex !== index) }))}>
-                          <DeleteOutlineIcon />
-                        </IconButton>
-                      </Stack>
-                    </Box>
-                    <Box sx={itemFieldsGridSx}>
-                      {form.columns.map((column) => (
-                        <TemplateItemField
+                      </TableCell>
+                      {form.columns.map((column, columnIndex) => (
+                        <TableCell
                           key={`${column.columnKey}-${index}`}
-                          column={column}
-                          item={item}
-                          itemIndex={index}
-                          items={form.items}
-                          setForm={setForm}
-                        />
+                          sx={{
+                            width: Math.max(resolveColumnWidth(column), 160),
+                            minWidth: Math.max(resolveColumnWidth(column), 160)
+                          }}
+                        >
+                          <TemplateItemField
+                            column={column}
+                            columnIndex={columnIndex}
+                            item={item}
+                            itemIndex={index}
+                            items={form.items}
+                            setForm={setForm}
+                            compact
+                            isSelected={selectedItemIndex === index && selectedColumnKey === column.columnKey}
+                            onSelect={() => selectCell(index, column.columnKey)}
+                            onNavigate={(direction) => navigateItemCell(index, columnIndex, direction)}
+                          />
+                        </TableCell>
                       ))}
-                    </Box>
-                  </Stack>
-                </Paper>
-              ))}
-            </Stack>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
           </Box>
 
           <Divider />
