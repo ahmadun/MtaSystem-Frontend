@@ -24,7 +24,7 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import useAuth from "app/hooks/useAuth";
 import {
-  useAppendChecksheetTemplateItems,
+  useAppendChecksheetSubmissionTemplateItems,
   useChecksheetSubmission,
   useUploadChecksheetTemplateImage
 } from "app/hooks/useChecksheets";
@@ -366,7 +366,7 @@ export default function ChecksheetTemplateAppendItemsPage() {
     [existingItems]
   );
   const [newItems, setNewItems] = useState([]);
-  const appendMutation = useAppendChecksheetTemplateItems(template?.id);
+  const appendMutation = useAppendChecksheetSubmissionTemplateItems(submissionId);
   const isDraft = submission?.status === "draft";
   const isOwner = Number(user?.id ?? 0) === Number(submission?.createdByUserId ?? 0);
   const canAppend = !!template?.id && isDraft && isOwner;

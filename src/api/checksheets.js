@@ -232,6 +232,11 @@ export const appendChecksheetTemplateItems = async (id, data) => {
   return response.data;
 };
 
+export const appendChecksheetSubmissionTemplateItems = async (id, data) => {
+  const response = await apiClient.post(`/checksheet-submissions/${id}/template-items/append`, data);
+  return response.data;
+};
+
 export const deleteChecksheetTemplate = async (id) => {
   const response = await apiClient.delete(`/checksheet-templates/${id}`);
   return response.data;

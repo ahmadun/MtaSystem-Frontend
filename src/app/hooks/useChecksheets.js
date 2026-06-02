@@ -3,6 +3,7 @@ import { useSnackbar } from "notistack";
 import {
   cancelApprovalRequest,
   appendChecksheetTemplateItems,
+  appendChecksheetSubmissionTemplateItems,
   createChecksheetArea,
   createChecksheetMaster,
   createChecksheetGroup,
@@ -390,6 +391,13 @@ export const useAppendChecksheetTemplateItems = (id) =>
     (data) => appendChecksheetTemplateItems(id, data),
     [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.templatesBase, CHECKSHEET_KEYS.template(id)],
     "Template rows appended successfully"
+  );
+
+export const useAppendChecksheetSubmissionTemplateItems = (id) =>
+  useSnackbarMutation(
+    (data) => appendChecksheetSubmissionTemplateItems(id, data),
+    [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.submissionBase(id)],
+    "Rows appended to transaction successfully"
   );
 
 export const useDeleteChecksheetTemplate = () =>
