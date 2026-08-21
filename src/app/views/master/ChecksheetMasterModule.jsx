@@ -88,8 +88,8 @@ const CHECKSHEET_LINE_COLUMN_SX = {
   line: { minWidth: 220 },
   multiProductNo: { minWidth: 220 },
   modes: { minWidth: 130 },
-  templates: { minWidth: 520 },
-  groups: { minWidth: 120 },
+  templates: { width: 520, minWidth: 520, maxWidth: 520 },
+  groups: { width: 120, minWidth: 120 },
   repairForms: { minWidth: 300 },
   status: { minWidth: 120 },
   action: { width: 132, minWidth: 132 }
@@ -1511,7 +1511,7 @@ export function ChecksheetLinesPage() {
           }
 
           return (
-            <Stack spacing={0.75} sx={{ minWidth: 480 }}>
+            <Stack spacing={0.75} sx={{ width: "100%", minWidth: 0, maxWidth: 480 }}>
               {modeTemplates.map((item) => {
                 const mode = String(item.checksheetMode || "").toUpperCase();
                 const isDaily = mode === "DAILY";
@@ -1522,7 +1522,7 @@ export function ChecksheetLinesPage() {
                     direction="row"
                     spacing={1}
                     alignItems="center"
-                    sx={{ minWidth: 0 }}
+                    sx={{ width: "100%", minWidth: 0 }}
                   >
                     <Chip
                       size="small"
@@ -1534,10 +1534,11 @@ export function ChecksheetLinesPage() {
                     <Typography
                       variant="body2"
                       sx={{
+                        flex: 1,
                         minWidth: 0,
                         whiteSpace: "normal",
-                        overflowWrap: "normal",
-                        wordBreak: "normal"
+                        overflowWrap: "anywhere",
+                        wordBreak: "break-word"
                       }}
                     >
                       {item.templateName || "-"}

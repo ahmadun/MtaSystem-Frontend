@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
@@ -15,6 +15,10 @@ import {
   Divider,
   InputAdornment,
   IconButton,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
   MenuItem,
   Paper,
   Skeleton,
@@ -37,17 +41,19 @@ import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import SearchRoundedIcon from "@mui/icons-material/SearchRounded";
 import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import { ConfirmationDialog } from "app/components";
 import useAuth from "app/hooks/useAuth";
 import {
   useApprovalTemplate,
   useApprovalTemplates,
   useCreateApprovalTemplate,
+  useDeleteApprovalTemplate,
   usePatchApprovalTemplate,
   useUpdateApprovalTemplate
 } from "app/hooks/useChecksheets";
 import { useUserOptions } from "app/hooks/useUsers";
 
-const DEFAULT_STEP = { stepName: "", stepOrder: 1, approvalMode: "any_one", approverUserIds: [] };
+const DEFAULT_STEP = { templateStepId: null, stepName: "", stepOrder: 1, approvalMode: "any_one", approverUserIds: [] };
 
 function createInitialForm() {
   return {
@@ -64,6 +70,7 @@ function buildFormFromTemplate(template) {
     .slice()
     .sort((a, b) => a.stepOrder - b.stepOrder)
     .map((step, index) => ({
+      templateStepId: step.id ?? null,
       stepName: step.stepName ?? "",
       stepOrder: index + 1,
       approvalMode: step.approvalMode ?? "any_one",
@@ -97,14 +104,206 @@ function getUserOptionLabel(option) {
   return option.username || option.label || "";
 }
 
+function ApproverManagerDialog({ open, step, stepIndex, initialUserOptions, onClose, onApply }) {
+  const [searchInput, setSearchInput] = useState("");
+  const [selectedIds, setSelectedIds] = useState([]);
+  const searchKeyword = searchInput.trim();
+  const { data: searchedUserOptions = [], isLoading: isSearchLoading } = useUserOptions(
+    { Top: 200, Name: searchKeyword || undefined },
+    { enabled: open }
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setSearchInput("");
+    setSelectedIds((step?.approverUserIds ?? []).map(Number));
+  }, [open, step]);
+
+  const userOptions = useMemo(() => {
+    const optionMap = new Map();
+    [...initialUserOptions, ...searchedUserOptions].forEach((option) => {
+      optionMap.set(Number(option.userId), option);
+    });
+    return Array.from(optionMap.values()).sort((a, b) => getUserOptionLabel(a).localeCompare(getUserOptionLabel(b)));
+  }, [initialUserOptions, searchedUserOptions]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const filteredOptions = useMemo(() => {
+    const keyword = searchInput.trim().toLowerCase();
+    if (!keyword) return userOptions;
+
+    return userOptions.filter((option) => getUserOptionLabel(option).toLowerCase().includes(keyword));
+  }, [searchInput, userOptions]);
+  const selectedApprovers = useMemo(
+    () => userOptions.filter((option) => selectedIdSet.has(Number(option.userId))),
+    [selectedIdSet, userOptions]
+  );
+  const filteredSelectedCount = filteredOptions.filter((option) => selectedIdSet.has(Number(option.userId))).length;
+
+  const toggleUser = (userId) => {
+    const normalizedUserId = Number(userId);
+    setSelectedIds((current) =>
+      current.includes(normalizedUserId)
+        ? current.filter((id) => id !== normalizedUserId)
+        : [...current, normalizedUserId]
+    );
+  };
+
+  const handleAddFiltered = () => {
+    setSelectedIds((current) => [...new Set([...current, ...filteredOptions.map((option) => Number(option.userId))])]);
+  };
+
+  const handleRemoveFiltered = () => {
+    const filteredIdSet = new Set(filteredOptions.map((option) => Number(option.userId)));
+    setSelectedIds((current) => current.filter((id) => !filteredIdSet.has(id)));
+  };
+
+  const handleRemoveSelected = (userId) => {
+    const normalizedUserId = Number(userId);
+    setSelectedIds((current) => current.filter((id) => id !== normalizedUserId));
+  };
+
+  const handleApply = () => {
+    onApply([...new Set(selectedIds)]);
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle>
+        {step ? `Manage Approvers - Step ${stepIndex + 1}` : "Manage Approvers"}
+      </DialogTitle>
+      <DialogContent dividers sx={{ p: 0 }}>
+        <Stack spacing={0}>
+          <Box sx={{ px: 3, py: 2, bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04) }}>
+            <Stack spacing={1.5}>
+              <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.5}>
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    {step?.stepName?.trim() || "Untitled approval step"}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {selectedIds.length} selected from {userOptions.length} available users
+                  </Typography>
+                </Box>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                  <Button size="small" variant="outlined" onClick={handleAddFiltered} disabled={filteredOptions.length === 0}>
+                    Add Filtered
+                  </Button>
+                  <Button size="small" variant="outlined" color="error" onClick={handleRemoveFiltered} disabled={filteredSelectedCount === 0}>
+                    Remove Filtered
+                  </Button>
+                </Stack>
+              </Stack>
+              <TextField
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search users by code, name, username, or email"
+                size="small"
+                fullWidth
+                slotProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchRoundedIcon fontSize="small" />
+                    </InputAdornment>
+                  )
+                }}
+              />
+            </Stack>
+          </Box>
+
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "minmax(0, 1fr) minmax(260px, 0.65fr)" },
+              minHeight: 420
+            }}
+          >
+            <Box sx={{ borderRight: { md: "1px solid" }, borderColor: "divider" }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Available Users
+                </Typography>
+                <Chip size="small" variant="outlined" label={`${filteredSelectedCount}/${filteredOptions.length} selected`} />
+              </Stack>
+                  {isSearchLoading ? (
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 2 }}>
+                      <CircularProgress size={18} />
+                      <Typography variant="body2" color="text.secondary">Loading users...</Typography>
+                </Stack>
+              ) : filteredOptions.length === 0 ? (
+                <Box sx={{ p: 3, textAlign: "center" }}>
+                  <Typography variant="body2" color="text.secondary">No users match this search.</Typography>
+                </Box>
+              ) : (
+                <List dense disablePadding sx={{ maxHeight: 420, overflow: "auto" }}>
+                  {filteredOptions.map((option) => {
+                    const userId = Number(option.userId);
+                    const checked = selectedIdSet.has(userId);
+
+                    return (
+                      <ListItemButton key={userId} onClick={() => toggleUser(userId)}>
+                        <ListItemIcon sx={{ minWidth: 36 }}>
+                          <Checkbox edge="start" checked={checked} tabIndex={-1} disableRipple />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={getUserOptionLabel(option)}
+                          secondary={option.email}
+                          primaryTypographyProps={{ fontWeight: checked ? 700 : 500 }}
+                        />
+                      </ListItemButton>
+                    );
+                  })}
+                </List>
+              )}
+            </Box>
+
+            <Box>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ px: 2, py: 1.25, borderBottom: "1px solid", borderColor: "divider" }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  Selected Approvers
+                </Typography>
+                <Chip size="small" color={selectedIds.length > 0 ? "primary" : "default"} label={selectedIds.length} />
+              </Stack>
+              {selectedApprovers.length === 0 ? (
+                <Box sx={{ p: 3, textAlign: "center" }}>
+                  <Typography variant="body2" color="text.secondary">No approvers selected.</Typography>
+                </Box>
+              ) : (
+                <Stack spacing={1} sx={{ p: 2, maxHeight: 420, overflow: "auto" }}>
+                  {selectedApprovers.map((option) => (
+                    <Chip
+                      key={option.userId}
+                      label={getUserOptionLabel(option)}
+                      onDelete={() => handleRemoveSelected(option.userId)}
+                      sx={{ justifyContent: "space-between", maxWidth: "100%", "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
+                    />
+                  ))}
+                </Stack>
+              )}
+            </Box>
+          </Box>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2 }}>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="contained" onClick={handleApply} disabled={selectedIds.length === 0}>
+          Apply Approvers
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClose }) {
   const isEdit = mode === "edit";
   const detailQuery = useApprovalTemplate(templateId, { enabled: open && isEdit && !!templateId });
   const createMutation = useCreateApprovalTemplate();
   const updateMutation = useUpdateApprovalTemplate(templateId);
   const mutation = isEdit ? updateMutation : createMutation;
-  const { data: userOptions = [], isLoading: isUsersLoading } = useUserOptions({ Top: 200 }, { enabled: open });
+  const { data: userOptions = [] } = useUserOptions({ Top: 200 }, { enabled: open });
   const [form, setForm] = useState(createInitialForm);
+  const [approverManagerStepIndex, setApproverManagerStepIndex] = useState(null);
+  const template = detailQuery.data;
+  const isWorkflowLocked = isEdit && template && !template.canReplaceWorkflow;
 
   useEffect(() => {
     if (!open) return;
@@ -120,6 +319,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
     () => form.steps.reduce((count, step) => count + (step.approverUserIds?.length ?? 0), 0),
     [form.steps]
   );
+  const managedStep = approverManagerStepIndex === null ? null : form.steps[approverManagerStepIndex];
 
   const canSubmit =
     form.name.trim().length > 0 &&
@@ -154,6 +354,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
       name: form.name.trim(),
       description: form.description.trim() || null,
       steps: form.steps.map((step, index) => ({
+        templateStepId: step.templateStepId,
         stepName: step.stepName.trim(),
         stepOrder: index + 1,
         approvalMode: step.approvalMode,
@@ -163,9 +364,15 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
     onClose();
   };
 
+  const handleApplyManagedApprovers = (approverUserIds) => {
+    if (approverManagerStepIndex === null) return;
+    handleStepChange(approverManagerStepIndex, { approverUserIds });
+    setApproverManagerStepIndex(null);
+  };
+
   return (
     <Dialog open={open} onClose={mutation.isPending ? undefined : onClose} fullWidth maxWidth="lg">
-      <DialogTitle>{isEdit ? "Edit Approval Workflow" : "Create Approval Template"}</DialogTitle>
+      <DialogTitle>{isEdit ? (isWorkflowLocked ? "Edit Template Approvers" : "Edit Approval Workflow") : "Create Approval Template"}</DialogTitle>
       <DialogContent dividers sx={{ p: 0 }}>
         {isEdit && detailQuery.isLoading ? (
           <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 3 }}>
@@ -179,7 +386,11 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                 <Chip size="small" label={`${stepCount} step${stepCount === 1 ? "" : "s"}`} />
                 <Chip size="small" label={`${totalApprovers} approver assignment${totalApprovers === 1 ? "" : "s"}`} variant="outlined" />
-                {isEdit ? <Chip size="small" color="warning" variant="outlined" label="Only unused templates can replace workflow steps" /> : null}
+                {isWorkflowLocked ? (
+                  <Chip size="small" color="warning" variant="outlined" label="Step flow locked; approvers update pending transactions" />
+                ) : isEdit ? (
+                  <Chip size="small" color="info" variant="outlined" label="Unused template workflow can be replaced" />
+                ) : null}
               </Stack>
             </Stack>
           </Box>
@@ -196,6 +407,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                     placeholder="Month-end approval"
                     value={form.name}
                     onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                    disabled={isWorkflowLocked}
                     fullWidth
                   />
                   <TextField
@@ -203,6 +415,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                     placeholder="Used when operators submit the monthly checksheet."
                     value={form.description}
                     onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                    disabled={isWorkflowLocked}
                     multiline
                     minRows={2}
                     fullWidth
@@ -222,7 +435,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                       Keep each step focused so approvers understand exactly where they belong in the chain.
                     </Typography>
                   </Box>
-                  <Button startIcon={<AddIcon />} variant="outlined" onClick={handleAddStep}>
+                  <Button startIcon={<AddIcon />} variant="outlined" onClick={handleAddStep} disabled={isWorkflowLocked}>
                     Add Step
                   </Button>
                 </Stack>
@@ -242,7 +455,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                                   {step.stepName.trim() || "Untitled approval step"}
                                 </Typography>
                               </Stack>
-                              <IconButton color="error" disabled={form.steps.length <= 1} onClick={() => handleRemoveStep(index)}>
+                              <IconButton color="error" disabled={isWorkflowLocked || form.steps.length <= 1} onClick={() => handleRemoveStep(index)}>
                                 <DeleteOutlineIcon />
                               </IconButton>
                             </Stack>
@@ -262,6 +475,7 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                                 placeholder="Leader Assy"
                                 value={step.stepName}
                                 onChange={(event) => handleStepChange(index, { stepName: event.target.value })}
+                                disabled={isWorkflowLocked}
                                 fullWidth
                               />
                               <TextField
@@ -269,29 +483,46 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
                                 label="Approval Mode"
                                 value={step.approvalMode}
                                 onChange={(event) => handleStepChange(index, { approvalMode: event.target.value })}
+                                disabled={isWorkflowLocked}
                                 fullWidth
                               >
                                 <MenuItem value="any_one">Any One</MenuItem>
                                 <MenuItem value="all">All Must Approve</MenuItem>
                               </TextField>
-                              <Autocomplete
-                                multiple
-                                options={userOptions}
-                                loading={isUsersLoading}
-                                value={selectedApprovers}
-                                onChange={(_, options) =>
-                                  handleStepChange(index, {
-                                    approverUserIds: options.map((option) => option.userId)
-                                  })
-                                }
-                                isOptionEqualToValue={(option, value) => option.userId === value.userId}
-                                getOptionLabel={getUserOptionLabel}
-                                renderInput={(params) => <TextField {...params} label="Approvers" placeholder="Select approvers" />}
-                              />
+                              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                                <Stack spacing={1.25}>
+                                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                    <Box>
+                                      <Typography variant="caption" color="text.secondary">
+                                        Approvers
+                                      </Typography>
+                                      <Typography variant="body2" fontWeight={700}>
+                                        {selectedApprovers.length} selected
+                                      </Typography>
+                                    </Box>
+                                    <Button size="small" variant="outlined" onClick={() => setApproverManagerStepIndex(index)}>
+                                      Manage
+                                    </Button>
+                                  </Stack>
+                                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                    {selectedApprovers.slice(0, 4).map((approver) => (
+                                      <Chip key={approver.userId} size="small" label={getUserOptionLabel(approver)} />
+                                    ))}
+                                    {selectedApprovers.length > 4 ? (
+                                      <Chip size="small" variant="outlined" label={`+${selectedApprovers.length - 4} more`} />
+                                    ) : null}
+                                    {selectedApprovers.length === 0 ? (
+                                      <Typography variant="body2" color="text.secondary">No approvers selected.</Typography>
+                                    ) : null}
+                                  </Stack>
+                                </Stack>
+                              </Paper>
                             </Box>
 
                             <Alert severity="info" sx={{ borderRadius: 2 }}>
-                              {step.approvalMode === "all"
+                              {isWorkflowLocked
+                                ? "Changing approvers here updates pending approval transactions for this step. Completed, rejected, and cancelled transactions keep their history."
+                                : step.approvalMode === "all"
                                 ? "Every selected approver must approve before the request can move forward."
                                 : "Any one selected approver can complete this step."}
                             </Alert>
@@ -312,9 +543,17 @@ function ApprovalTemplateEditorDialog({ open, mode = "create", templateId, onClo
           Cancel
         </Button>
         <Button variant="contained" onClick={handleSubmit} disabled={mutation.isPending || !canSubmit || (isEdit && detailQuery.isLoading)}>
-          {mutation.isPending ? "Saving..." : isEdit ? "Save Workflow" : "Create Template"}
+          {mutation.isPending ? "Saving..." : isEdit ? (isWorkflowLocked ? "Save Approvers" : "Save Workflow") : "Create Template"}
         </Button>
       </DialogActions>
+      <ApproverManagerDialog
+        open={approverManagerStepIndex !== null}
+        step={managedStep}
+        stepIndex={approverManagerStepIndex ?? 0}
+        initialUserOptions={userOptions}
+        onClose={() => setApproverManagerStepIndex(null)}
+        onApply={handleApplyManagedApprovers}
+      />
     </Dialog>
   );
 }
@@ -376,7 +615,7 @@ function ApprovalTemplateDetailDialog({ open, templateId, canManage, onClose, on
             <Alert severity={template.canReplaceWorkflow ? "info" : "warning"} sx={{ borderRadius: 2 }}>
               {template.canReplaceWorkflow
                 ? "This template has not been used yet. The approval workflow can still be replaced."
-                : "This template has already been used. Existing approval requests keep their own snapshot, so only the name, description, and active status should be edited. Create a new template for approver or step changes."}
+                : "This template has already been used. Step order, names, and approval mode are locked, but approvers can be changed and will sync to pending transactions only."}
             </Alert>
 
             {canManage ? (
@@ -442,9 +681,9 @@ function ApprovalTemplateDetailDialog({ open, templateId, canManage, onClose, on
         ) : null}
       </DialogContent>
       <DialogActions>
-        {canManage && template?.canReplaceWorkflow ? (
+        {canManage ? (
           <Button startIcon={<EditOutlinedIcon />} onClick={() => onEditWorkflow(template.id)}>
-            Edit Workflow
+            {template?.canReplaceWorkflow ? "Edit Workflow" : "Edit Approvers"}
           </Button>
         ) : null}
         <Button onClick={onClose} disabled={patchMutation.isPending}>
@@ -460,10 +699,12 @@ export default function ApprovalTemplatesPage() {
   const canManage = ["SuperAdmin", "Admin"].includes(user?.role);
   const [editorState, setEditorState] = useState({ open: false, mode: "create", templateId: null });
   const [detailTemplateId, setDetailTemplateId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [searchInput, setSearchInput] = useState("");
   const [globalFilter, setGlobalFilter] = useState("");
+  const deleteMutation = useDeleteApprovalTemplate();
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -539,13 +780,24 @@ export default function ApprovalTemplatesPage() {
             <IconButton size="small" onClick={() => setDetailTemplateId(row.original.id)}>
               <VisibilityOutlinedIcon fontSize="small" />
             </IconButton>
-            {canManage && row.original.canReplaceWorkflow ? (
-              <IconButton
-                size="small"
-                onClick={() => setEditorState({ open: true, mode: "edit", templateId: row.original.id })}
-              >
-                <EditOutlinedIcon fontSize="small" />
-              </IconButton>
+            {canManage ? (
+              <>
+                <IconButton
+                  size="small"
+                  onClick={() => setEditorState({ open: true, mode: "edit", templateId: row.original.id })}
+                >
+                  <EditOutlinedIcon fontSize="small" />
+                </IconButton>
+                {row.original.canReplaceWorkflow ? (
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={() => setDeleteTarget(row.original)}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                  </IconButton>
+                ) : null}
+              </>
             ) : null}
           </Stack>
         )
@@ -737,6 +989,21 @@ export default function ApprovalTemplatesPage() {
         onEditWorkflow={(templateId) => {
           setDetailTemplateId(null);
           setEditorState({ open: true, mode: "edit", templateId });
+        }}
+      />
+      <ConfirmationDialog
+        open={!!deleteTarget}
+        title="Delete Template"
+        text={`Delete approval template "${deleteTarget?.name ?? ""}"? This can only be done for unused templates.`}
+        confirmText="Delete"
+        confirmColor="error"
+        isLoading={deleteMutation.isPending}
+        onConfirmDialogClose={() => setDeleteTarget(null)}
+        onYesClick={() => {
+          if (!deleteTarget) return;
+          deleteMutation.mutate(deleteTarget.id, {
+            onSuccess: () => setDeleteTarget(null)
+          });
         }}
       />
     </Box>

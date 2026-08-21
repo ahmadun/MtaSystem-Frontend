@@ -166,7 +166,8 @@ function getColumnImageOptions(existingItems, newItems, columnKey) {
     ...new Set(
       [...existingItems, ...newItems]
         .map((item) => String(item?.data?.[columnKey] ?? item?.[columnKey] ?? "").trim())
-        .filter(Boolean)
+        .filter(isImageCellValue)
+        .map(getImageUrl)
     )
   ];
 }
@@ -199,6 +200,40 @@ function ReadOnlyCell({ column, item, value }) {
   }
 
   return value || "-";
+}
+
+function getCurrentRowsColumnWidth(column) {
+  if (isItemNumberColumn(column)) {
+    return { xs: 96, sm: 112, md: 120 };
+  }
+
+  if (normalizeColumnType(column.columnType) === "image") {
+    return { xs: 220, sm: 260, md: 280 };
+  }
+
+  return { xs: 180, sm: 220, md: 240 };
+}
+
+function getCurrentRowsMinWidth(columns) {
+  const answerTypeWidth = 170;
+  const totalColumnWidth = columns.reduce((total, column) => {
+    const width = getCurrentRowsColumnWidth(column);
+    return total + width.md;
+  }, answerTypeWidth);
+
+  return Math.max(760, totalColumnWidth);
+}
+
+function getCurrentRowsCellSx(column) {
+  const width = getCurrentRowsColumnWidth(column);
+
+  return {
+    minWidth: width,
+    width: { md: width.md },
+    verticalAlign: "middle",
+    whiteSpace: "normal",
+    overflowWrap: "break-word"
+  };
 }
 
 function NewItemField({ column, item, itemIndex, existingItems, newItems, setNewItems }) {
@@ -453,26 +488,51 @@ export default function ChecksheetTemplateAppendItemsPage() {
         <Paper variant="outlined" sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>Current Rows</Typography>
           <TableContainer sx={{ overflowX: "auto" }}>
-            <Table size="small" sx={{ tableLayout: "auto", minWidth: Math.max(720, columns.length * 180) }}>
+            <Table size="small" sx={{ tableLayout: "auto", minWidth: getCurrentRowsMinWidth(columns) }}>
               <TableHead>
                 <TableRow>
                   {columns.map((column) => (
-                    <TableCell key={column.columnKey} sx={{ fontWeight: 700, verticalAlign: "middle" }}>
+                    <TableCell
+                      key={column.columnKey}
+                      sx={{
+                        ...getCurrentRowsCellSx(column),
+                        fontWeight: 700
+                      }}
+                    >
                       {column.label}
                     </TableCell>
                   ))}
-                  <TableCell sx={{ fontWeight: 700, verticalAlign: "middle" }}>Answer Type</TableCell>
+                  <TableCell
+                    sx={{
+                      minWidth: { xs: 150, sm: 160, md: 170 },
+                      width: { md: 170 },
+                      fontWeight: 700,
+                      verticalAlign: "middle",
+                      whiteSpace: "normal",
+                      overflowWrap: "break-word"
+                    }}
+                  >
+                    Answer Type
+                  </TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {existingItems.map((item) => (
                   <TableRow key={item.id}>
                     {columns.map((column) => (
-                      <TableCell key={column.columnKey} sx={{ verticalAlign: "middle" }}>
+                      <TableCell key={column.columnKey} sx={getCurrentRowsCellSx(column)}>
                         <ReadOnlyCell column={column} item={item} value={item.data?.[column.columnKey]} />
                       </TableCell>
                     ))}
-                    <TableCell sx={{ verticalAlign: "middle" }}>{item.valueType}</TableCell>
+                    <TableCell
+                      sx={{
+                        minWidth: { xs: 150, sm: 160, md: 170 },
+                        width: { md: 170 },
+                        verticalAlign: "middle"
+                      }}
+                    >
+                      {item.valueType}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

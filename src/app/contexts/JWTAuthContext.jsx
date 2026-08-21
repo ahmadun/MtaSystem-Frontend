@@ -164,7 +164,7 @@ export const AuthProvider = ({ children }) => {
             user = buildUser({
               id: claim(decoded, "sub", "nameid"),
               username: claim(decoded, "unique_name", "username"),
-              fullName: claim(decoded, "name", "fullName"),
+              fullName: claim(decoded, "fullName", "name"),
               email: claim(decoded, "email"),
               role: claim(
                 decoded,

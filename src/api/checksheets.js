@@ -380,6 +380,11 @@ export const patchApprovalTemplate = async (id, data) => {
   return response.data;
 };
 
+export const deleteApprovalTemplate = async (id) => {
+  const response = await apiClient.delete(`/approval-templates/${id}`);
+  return response.data;
+};
+
 export const getSubmissionApprovalRequests = async (submissionId, params) => {
   const response = await apiClient.get(`/checksheet-submissions/${submissionId}/approval-requests`, { params });
   return response.data;

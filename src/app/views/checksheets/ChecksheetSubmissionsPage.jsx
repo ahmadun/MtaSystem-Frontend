@@ -661,7 +661,7 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
           >
             {machines.map((machine) => (
               <MenuItem key={machine.machineCode} value={machine.machineCode}>
-                {machine.machineCode}
+                {[machine.machineCode, machine.checksheetName].filter(Boolean).join(" - ")}
               </MenuItem>
             ))}
           </TextField>

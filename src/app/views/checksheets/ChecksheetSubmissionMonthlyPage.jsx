@@ -52,7 +52,7 @@ import {
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
-const FIXED_OPTIONS = ["OK", "NG", "FIX"];
+const FIXED_OPTIONS = ["OK", "NG", "FIX", "-"];
 const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const MONTH_DAY_COLUMN_WIDTH = 64;
 const MIN_TEMPLATE_COLUMN_WIDTH = 60;
@@ -801,6 +801,17 @@ function getApproverDisplayName(person) {
   return person?.fullName || person?.approvedByFullName || person?.username || person?.approvedByUsername || "-";
 }
 
+function getApproverResponse(step, approver) {
+  const approverUserId = Number(approver?.userId);
+  if (!approverUserId) return null;
+
+  return (step?.responses ?? []).find((response) => Number(response?.userId) === approverUserId) ?? null;
+}
+
+function getVisibleApprovers(step, max = 2) {
+  return (step?.approvers ?? []).slice(0, max);
+}
+
 function stepIncludesCurrentUser(step, userId) {
   const normalizedUserId = Number(userId);
   if (!normalizedUserId) {
@@ -959,6 +970,8 @@ export default function ChecksheetSubmissionMonthlyPage() {
   const [repairApprovalTarget, setRepairApprovalTarget] = useState(null);
   const [repairApprovalCancelTarget, setRepairApprovalCancelTarget] = useState(null);
   const [monthEndApprovalTarget, setMonthEndApprovalTarget] = useState(null);
+  const [approverListStep, setApproverListStep] = useState(null);
+  const [approverSearchInput, setApproverSearchInput] = useState("");
   const [monthEndDecision, setMonthEndDecision] = useState("approved");
   const [monthEndComment, setMonthEndComment] = useState("");
 
@@ -1066,6 +1079,29 @@ export default function ChecksheetSubmissionMonthlyPage() {
 
     return isApprover && !hasResponded;
   }, [currentMonthEndApprovalStep, monthlyView?.status, referenceView?.currentApprovalRequestId, user?.id]);
+
+  const filteredApproverList = useMemo(() => {
+    const keyword = approverSearchInput.trim().toLowerCase();
+    const approvers = approverListStep?.approvers ?? [];
+
+    if (!keyword) {
+      return approvers;
+    }
+
+    return approvers.filter((approver) => {
+      const searchableText = [
+        getApproverDisplayName(approver),
+        approver?.email,
+        approver?.employeeCode,
+        approver?.username
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(keyword);
+    });
+  }, [approverListStep, approverSearchInput]);
   const displayColumns = useMemo(() => {
     const templateColumns = monthlyView?.templateColumns ?? [];
     if (templateColumns.length > 0) {
@@ -1599,7 +1635,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                               <Box key={`${mode}-${item.templateItemId}-${entry.key}-${lineIndex}`} component="span" sx={{ display: "block" }}>
                                 {line}
                               </Box>
-                            )) : cell?.resultValue || "-"}
+                            )) : cell?.resultValue ?? ""}
                           </Typography>
                         </Tooltip>
                       </TableCell>
@@ -1865,6 +1901,9 @@ export default function ChecksheetSubmissionMonthlyPage() {
                     const isApproved = step.status === "approved";
                     const isRejected = step.status === "rejected";
                     const cardColor = isApproved ? "success.main" : isRejected ? "error.main" : isCurrentStep ? "primary.main" : "divider";
+                    const approvers = step.approvers ?? [];
+                    const visibleApprovers = getVisibleApprovers(step, 2);
+                    const hiddenApproverCount = Math.max(0, approvers.length - visibleApprovers.length);
 
                     return (
                       <Paper
@@ -1894,12 +1933,51 @@ export default function ChecksheetSubmissionMonthlyPage() {
                             <Typography variant="subtitle2" fontWeight={800} sx={{ overflowWrap: "anywhere" }}>
                               {step.stepName}
                             </Typography>
-                            <Stack spacing={0.5} alignItems="center" sx={{ mt: 1 }}>
-                              {(step.approvers ?? []).map((approver) => (
-                                <Typography key={approver.userId} variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere", textAlign: "center" }}>
-                                  {approver.fullName || approver.username || `User ${approver.userId}`}
-                                </Typography>
-                              ))}
+                            <Stack spacing={0.75} alignItems="center" sx={{ mt: 1 }}>
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                color={approvers.length > 0 ? "primary" : "default"}
+                                label={approvers.length === 1 ? "1 approver" : `${approvers.length} approvers`}
+                                onClick={() => {
+                                  setApproverListStep(step);
+                                  setApproverSearchInput("");
+                                }}
+                                sx={{ maxWidth: "100%" }}
+                              />
+                              {approvers.length > 0 ? (
+                                <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap sx={{ maxWidth: "100%" }}>
+                                  {visibleApprovers.map((approver) => (
+                                    <Tooltip key={approver.userId} title={getApproverDisplayName(approver)}>
+                                      <Chip
+                                        size="small"
+                                        label={getApproverDisplayName(approver)}
+                                        sx={{
+                                          maxWidth: 120,
+                                          "& .MuiChip-label": {
+                                            display: "block",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis"
+                                          }
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  ))}
+                                  {hiddenApproverCount > 0 ? (
+                                    <Chip
+                                      size="small"
+                                      variant="outlined"
+                                      label={`+${hiddenApproverCount} more`}
+                                      onClick={() => {
+                                        setApproverListStep(step);
+                                        setApproverSearchInput("");
+                                      }}
+                                    />
+                                  ) : null}
+                                </Stack>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">No approvers</Typography>
+                              )}
                             </Stack>
                           </Box>
                           <Box sx={{ flexGrow: 1 }} />
@@ -2567,6 +2645,88 @@ export default function ChecksheetSubmissionMonthlyPage() {
               disabled={jigNoCheckRows.some((row) => (row.pointNo && !row.pointValue) || (!row.pointNo && row.pointValue))}
             >
               Save
+            </Button>
+          </DialogActions>
+        </Dialog>
+        <Dialog
+          open={!!approverListStep}
+          onClose={() => {
+            setApproverListStep(null);
+            setApproverSearchInput("");
+          }}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>
+            {approverListStep ? `Approvers - Step ${approverListStep.stepOrder}` : "Approvers"}
+          </DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2}>
+              {approverListStep ? (
+                <Alert severity="info">
+                  {approverListStep.stepName} has {(approverListStep.approvers ?? []).length} {(approverListStep.approvers ?? []).length === 1 ? "approver" : "approvers"}.
+                </Alert>
+              ) : null}
+              <TextField
+                value={approverSearchInput}
+                onChange={(event) => setApproverSearchInput(event.target.value)}
+                placeholder="Search approvers"
+                size="small"
+                fullWidth
+              />
+              <Stack spacing={1.25} sx={{ maxHeight: 420, overflow: "auto", pr: 0.5 }}>
+                {filteredApproverList.length > 0 ? (
+                  filteredApproverList.map((approver) => {
+                    const response = getApproverResponse(approverListStep, approver);
+                    const isCurrentUser = Number(approver.userId) === Number(user?.id);
+                    const statusColor = response?.decision === "approved" ? "success" : response?.decision === "rejected" ? "error" : "default";
+                    const statusLabel = response?.decision ? formatSubmissionStatus(response.decision) : "Waiting";
+
+                    return (
+                      <Paper
+                        key={approver.userId}
+                        variant="outlined"
+                        sx={{
+                          p: 1.5,
+                          borderColor: isCurrentUser ? "primary.main" : "divider",
+                          bgcolor: isCurrentUser ? "action.selected" : "background.paper"
+                        }}
+                      >
+                        <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={1.25} alignItems={{ xs: "flex-start", sm: "center" }}>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                              <Typography fontWeight={800} sx={{ overflowWrap: "anywhere" }}>
+                                {getApproverDisplayName(approver)}
+                              </Typography>
+                              {isCurrentUser ? <Chip size="small" color="primary" label="You" /> : null}
+                            </Stack>
+                            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: "anywhere", mt: 0.25 }}>
+                              {approver.email || approver.username || `User ${approver.userId}`}
+                            </Typography>
+                          </Box>
+                          <Chip size="small" color={statusColor} label={statusLabel} />
+                        </Stack>
+                      </Paper>
+                    );
+                  })
+                ) : (
+                  <Box sx={{ py: 4, textAlign: "center" }}>
+                    <Typography variant="body2" color="text.secondary">
+                      {approverSearchInput.trim() ? "No approvers match this search." : "No approvers assigned."}
+                    </Typography>
+                  </Box>
+                )}
+              </Stack>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setApproverListStep(null);
+                setApproverSearchInput("");
+              }}
+            >
+              Close
             </Button>
           </DialogActions>
         </Dialog>

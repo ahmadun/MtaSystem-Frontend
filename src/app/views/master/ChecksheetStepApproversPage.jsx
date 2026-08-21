@@ -29,6 +29,7 @@ import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-tabl
 import { ConfirmationDialog } from "app/components";
 import {
   useChecksheetStepApprovers,
+  useChecksheetMasters,
   useCreateChecksheetStepApprover,
   useDeleteChecksheetStepApprover,
   useUpdateChecksheetStepApprover
@@ -53,8 +54,14 @@ function getUserDisplayName(user) {
   return userCode;
 }
 
-function StepApproverDialog({ open, mode, initialData, userOptions, onClose, onSubmit, isPending }) {
+function getChecksheetMasterDisplayName(master) {
+  if (!master) return "";
+  return `${master.processCode} - ${master.processName} - ${master.checksheetName}`;
+}
+
+function StepApproverDialog({ open, mode, initialData, selectedMaster, userOptions, onClose, onSubmit, isPending }) {
   const [form, setForm] = useState({
+    checksheetMasterId: initialData?.checksheetMasterId ?? selectedMaster?.id ?? "",
     userId: initialData?.userId ?? "",
     stepOrder: initialData?.stepOrder ?? 1,
     isActive: initialData?.isActive ?? true
@@ -62,17 +69,23 @@ function StepApproverDialog({ open, mode, initialData, userOptions, onClose, onS
 
   useEffect(() => {
     setForm({
+      checksheetMasterId: initialData?.checksheetMasterId ?? selectedMaster?.id ?? "",
       userId: initialData?.userId ?? "",
       stepOrder: initialData?.stepOrder ?? 1,
       isActive: initialData?.isActive ?? true
     });
-  }, [initialData]);
+  }, [initialData, selectedMaster]);
 
   return (
     <Dialog open={open} onClose={isPending ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{mode === "edit" ? "Edit Checksheet Approver" : "Create Checksheet Approver"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
+          <TextField
+            label="Checksheet Master"
+            value={getChecksheetMasterDisplayName(selectedMaster)}
+            InputProps={{ readOnly: true }}
+          />
           <TextField
             select
             label="User"
@@ -107,7 +120,7 @@ function StepApproverDialog({ open, mode, initialData, userOptions, onClose, onS
         <Button onClick={onClose} disabled={isPending}>Cancel</Button>
         <Button
           variant="contained"
-          disabled={isPending || !form.userId || !form.stepOrder}
+          disabled={isPending || !form.checksheetMasterId || !form.userId || !form.stepOrder}
           onClick={() => onSubmit(form)}
         >
           {isPending ? "Saving..." : "Save"}
@@ -118,16 +131,26 @@ function StepApproverDialog({ open, mode, initialData, userOptions, onClose, onS
 }
 
 export default function ChecksheetStepApproversPage() {
+  const [selectedMasterId, setSelectedMasterId] = useState("");
   const [dialogState, setDialogState] = useState({ open: false, mode: "create", data: null });
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [filters, setFilters] = useState({ stepOrder: "" });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const { data, isLoading, isError, error } = useChecksheetStepApprovers({
-    page,
-    pageSize,
-    stepOrder: filters.stepOrder || undefined
-  });
+  const { data: checksheetMasters = [], isLoading: isLoadingMasters, isError: isMastersError, error: mastersError } = useChecksheetMasters();
+  const selectedMaster = useMemo(
+    () => checksheetMasters.find((master) => Number(master.id) === Number(selectedMasterId)) ?? null,
+    [checksheetMasters, selectedMasterId]
+  );
+  const { data, isLoading, isError, error } = useChecksheetStepApprovers(
+    {
+      page,
+      pageSize,
+      checksheetMasterId: selectedMasterId || undefined,
+      stepOrder: filters.stepOrder || undefined
+    },
+    { enabled: !!selectedMasterId }
+  );
   const approvers = useMemo(() => data?.items ?? [], [data?.items]);
   const totalCount = data?.totalCount ?? 0;
   const { data: users = [] } = useUserOptions({ top: 200 });
@@ -137,7 +160,7 @@ export default function ChecksheetStepApproversPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [filters.stepOrder]);
+  }, [filters.stepOrder, selectedMasterId]);
 
   const columns = useMemo(
     () => [
@@ -197,8 +220,8 @@ export default function ChecksheetStepApproversPage() {
     }
   });
 
-  if (isError) {
-    return <Box sx={{ p: 3 }}><Alert severity="error">{error.message}</Alert></Box>;
+  if (isError || isMastersError) {
+    return <Box sx={{ p: 3 }}><Alert severity="error">{error?.message || mastersError?.message}</Alert></Box>;
   }
 
   return (
@@ -208,10 +231,15 @@ export default function ChecksheetStepApproversPage() {
           <Box>
             <Typography variant="h5" fontWeight={700}>Checksheet Approver Master</Typography>
             <Typography variant="body2" color="text.secondary">
-              Register which users can approve checksheet approval steps. A user registered for Step 1 can only approve Step 1 transactions.
+              Select a Checksheet Master, then register which users can approve each daily or regular inspection step.
             </Typography>
           </Box>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDialogState({ open: true, mode: "create", data: null })}>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            disabled={!selectedMasterId}
+            onClick={() => setDialogState({ open: true, mode: "create", data: null })}
+          >
             Add Approver
           </Button>
         </Stack>
@@ -220,9 +248,30 @@ export default function ChecksheetStepApproversPage() {
           <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
             <TextField
               select
+              required
+              size="small"
+              label="Checksheet Master"
+              value={selectedMasterId}
+              disabled={isLoadingMasters}
+              onChange={(event) => {
+                setSelectedMasterId(event.target.value ? Number(event.target.value) : "");
+                setFilters({ stepOrder: "" });
+              }}
+              sx={{ minWidth: 360, maxWidth: 560 }}
+            >
+              <MenuItem value="">Select Checksheet Master</MenuItem>
+              {checksheetMasters.map((master) => (
+                <MenuItem key={master.id} value={master.id}>
+                  {getChecksheetMasterDisplayName(master)}
+                </MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              select
               size="small"
               label="Allowed Step"
               value={filters.stepOrder}
+              disabled={!selectedMasterId}
               onChange={(event) => setFilters((current) => ({ ...current, stepOrder: event.target.value }))}
               sx={{ minWidth: 220, maxWidth: 280 }}
             >
@@ -259,7 +308,13 @@ export default function ChecksheetStepApproversPage() {
               ))}
             </TableHead>
             <TableBody>
-              {isLoading ? (
+              {!selectedMasterId ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>
+                    Select a Checksheet Master to manage its approvers.
+                  </TableCell>
+                </TableRow>
+              ) : isLoading ? (
                 <TableRow>
                   <TableCell colSpan={columns.length} align="center" sx={{ py: 6, px: 3 }}>
                     Loading checksheet approvers...
@@ -312,6 +367,7 @@ export default function ChecksheetStepApproversPage() {
         open={dialogState.open}
         mode={dialogState.mode}
         initialData={dialogState.data}
+        selectedMaster={selectedMaster}
         userOptions={users}
         isPending={createApprover.isPending || updateApprover.isPending}
         onClose={() => setDialogState({ open: false, mode: "create", data: null })}

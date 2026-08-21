@@ -303,6 +303,33 @@ function getEffectiveCellType(column, item) {
   return getItemCellTypes(item)[column.columnKey] ?? normalizeColumnType(column.columnType);
 }
 
+function getImageUrl(value) {
+  if (!value) return "";
+  const rawValue = String(value).trim().replace(/^["']|["']$/g, "");
+  if (!rawValue) return "";
+
+  if (/^https?:\/\//i.test(rawValue)) {
+    try {
+      const parsedUrl = new URL(rawValue);
+      return `${parsedUrl.pathname}${parsedUrl.search}`;
+    } catch {
+      return rawValue;
+    }
+  }
+
+  const normalizedPath = rawValue
+    .replace(/\\/g, "/")
+    .replace(/^\/api\/uploads\//, "/uploads/")
+    .replace(/^api\/uploads\//, "uploads/");
+
+  return normalizedPath.startsWith("uploads/") ? `/${normalizedPath}` : normalizedPath;
+}
+
+function isImageCellValue(value) {
+  const url = getImageUrl(value);
+  return /\.(png|jpe?g|gif|webp)(\?.*)?$/i.test(url) || url.includes("/uploads/checksheet-template-items/");
+}
+
 function syncItemKeys(items, previousKey, nextKey) {
   if (!previousKey || previousKey === nextKey) {
     return items;
@@ -366,7 +393,8 @@ function getColumnImageOptions(items, columnKey) {
     ...new Set(
       items
         .map((item) => String(item[columnKey] ?? "").trim())
-        .filter(Boolean)
+        .filter(isImageCellValue)
+        .map(getImageUrl)
     )
   ];
 }

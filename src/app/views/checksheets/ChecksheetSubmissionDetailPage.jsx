@@ -58,7 +58,7 @@ import {
   useUpdateInspectionRecord
 } from "app/hooks/useChecksheets";
 
-const FIXED_OPTIONS = ["OK", "NG", "FIX"];
+const FIXED_OPTIONS = ["OK", "NG", "FIX", "-"];
 const JIG_NO_CHECK_VALUE_TYPE = "jig_no_check";
 const REPAIR_CODE_OPTIONS = ["D", "R", "P"];
 const REPAIR_JUDGMENT_OPTIONS = ["OK", "NG"];
@@ -975,6 +975,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const multiProductNo = submission?.multiProductNo || currentMachine?.multiProductNo || "-";
   const processName = submission?.processName || currentMachine?.processName || "-";
   const checksheetName = submission?.checksheetName || currentMachine?.checksheetName || "-";
+  const templateDescription = String(submission?.template?.description ?? "").trim();
   const availableInspectionMachineCodes = useMemo(
     () => (submission?.machineCodes?.length ? submission.machineCodes : currentMachine?.machineCodes ?? []),
     [currentMachine?.machineCodes, submission?.machineCodes]
@@ -1469,6 +1470,11 @@ export default function ChecksheetSubmissionDetailPage() {
                 <Typography variant="body2" color="text.secondary">
                   {submission.location} | {submission.lineName} | {multiProductNo}
                 </Typography>
+                {templateDescription ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, maxWidth: 760, whiteSpace: "pre-line" }}>
+                    {templateDescription}
+                  </Typography>
+                ) : null}
               </Box>
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip label={submission.checksheetMode.toUpperCase()} />

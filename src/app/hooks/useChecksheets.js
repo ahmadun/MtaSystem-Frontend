@@ -16,6 +16,7 @@ import {
   approveRepairRecord,
   cancelRepairRecordApproval,
   createApprovalTemplate,
+  deleteApprovalTemplate,
   getApprovalTemplate,
   getDashboard,
   getChecksheetAreas,
@@ -551,6 +552,9 @@ export const useUpdateApprovalTemplate = (id) =>
 
 export const usePatchApprovalTemplate = (id) =>
   useSnackbarMutation((data) => patchApprovalTemplate(id, data), [CHECKSHEET_KEYS.all, CHECKSHEET_KEYS.approvalTemplate(id)], "Approval template updated successfully");
+
+export const useDeleteApprovalTemplate = () =>
+  useSnackbarMutation(deleteApprovalTemplate, [CHECKSHEET_KEYS.all], "Approval template deleted successfully");
 
 export const useCreateApprovalRequest = (submissionId) =>
   useSnackbarMutation((data) => createApprovalRequest(submissionId, data), [CHECKSHEET_KEYS.submissionBase(submissionId), ["checksheets", "submission", submissionId, "monthly-view"], ["checksheets", "pending-approvals"]], "Approval request created successfully");
