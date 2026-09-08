@@ -870,6 +870,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [repairApprovalTarget, setRepairApprovalTarget] = useState(null);
   const [repairApprovalCancelTarget, setRepairApprovalCancelTarget] = useState(null);
+  const [monthEndSubmitOpen, setMonthEndSubmitOpen] = useState(false);
   const [cancelSubmissionOpen, setCancelSubmissionOpen] = useState(false);
   const [standNavigationTarget, setStandNavigationTarget] = useState(null);
   const [standNavigationPendingMachineCode, setStandNavigationPendingMachineCode] = useState("");
@@ -1395,6 +1396,7 @@ export default function ChecksheetSubmissionDetailPage() {
     { label: "Group", value: submission.groupCodes?.join(", ") || "-" },
     { label: "Process", value: processName },
     { label: "Checksheet", value: checksheetName },
+    { label: "Created By", value: submission.createdByFullName },
     ...machineEntryDetails
   ];
 
@@ -2054,10 +2056,7 @@ export default function ChecksheetSubmissionDetailPage() {
                 variant="contained"
                 startIcon={<SendOutlinedIcon />}
                 disabled={!isDraft || !approvalTemplateId || createApprovalMutation.isPending}
-                onClick={() => createApprovalMutation.mutate({
-                  templateId: Number(approvalTemplateId),
-                  title: `${submission.machineCode} ${submission.inspectionDate} Shift ${submission.shift}`
-                })}
+                onClick={() => setMonthEndSubmitOpen(true)}
               >
                 {createApprovalMutation.isPending ? "Submitting..." : "Submit For Approval"}
               </Button>
@@ -2290,6 +2289,21 @@ export default function ChecksheetSubmissionDetailPage() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        <ConfirmationDialog
+          open={monthEndSubmitOpen}
+          title="Konfirmasi Pengajuan Akhir Bulan"
+          text="Pengajuan ini akan mengirim seluruh transaksi checksheet selama satu bulan untuk proses persetujuan. Pastikan transaksi untuk setiap hari pada bulan tersebut sudah dibuat dan seluruh datanya telah lengkap. Apakah Anda yakin ingin melanjutkan?"
+          confirmText="Ya, Submit For Approval"
+          isLoading={createApprovalMutation.isPending}
+          onConfirmDialogClose={() => setMonthEndSubmitOpen(false)}
+          onYesClick={() => createApprovalMutation.mutate({
+            templateId: Number(approvalTemplateId),
+            title: `${submission.machineCode} ${submission.inspectionDate} Shift ${submission.shift}`
+          }, {
+            onSuccess: () => setMonthEndSubmitOpen(false)
+          })}
+        />
 
         <ConfirmationDialog
           open={!!deleteTarget}

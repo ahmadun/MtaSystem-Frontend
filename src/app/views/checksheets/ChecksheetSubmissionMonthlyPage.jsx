@@ -1821,6 +1821,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
                   <Typography variant="body2"><strong>Status:</strong> {formatSubmissionStatus(monthlyView.status)}</Typography>
                   <Typography variant="body2"><strong>Process:</strong> {monthlyView.processName || "-"}</Typography>
                   <Typography variant="body2"><strong>Checksheet:</strong> {monthlyView.checksheetName || "-"}</Typography>
+                  <Typography variant="body2"><strong>Created By:</strong> {monthlyView.createdByFullName || "-"}</Typography>
                 </Stack>
                 {machineEntryDetails.length > 0 && (
                   <Stack direction={{ xs: "column", md: "row" }} spacing={3} flexWrap="wrap">

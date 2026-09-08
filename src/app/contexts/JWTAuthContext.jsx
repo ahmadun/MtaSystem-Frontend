@@ -15,8 +15,9 @@ const initialState = {
 
 const claim = (decodedToken, ...keys) => {
   for (const key of keys) {
-    if (decodedToken?.[key] !== undefined) {
-      return decodedToken[key];
+    const value = decodedToken?.[key];
+    if (value !== undefined && value !== null && !(typeof value === "string" && !value.trim())) {
+      return value;
     }
   }
 
@@ -57,18 +58,25 @@ const toBoolean = (value) => {
   return Boolean(value);
 };
 
-const buildUser = (data) => ({
-  id: data.userId ?? data.id,
-  username: data.username,
-  fullName: data.fullName ?? data.fullname ?? data.name,
-  email: data.email,
-  role: data.role,
-  employeeId: data.employeeId,
-  mustChangePassword: toBoolean(data.mustChangePassword),
-  isActive: data.isActive,
-  phoneNumber: data.phoneNumber,
-  department: data.department
-});
+const buildUser = (data) => {
+  const username = data.username;
+  const fullName = [data.fullName, data.fullname, data.employeeName, data.name]
+    .find((value) => typeof value === "string" && value.trim())
+    ?.trim();
+
+  return {
+    id: data.userId ?? data.id,
+    username,
+    fullName: fullName || username,
+    email: data.email,
+    role: data.role,
+    employeeId: data.employeeId,
+    mustChangePassword: toBoolean(data.mustChangePassword),
+    isActive: data.isActive,
+    phoneNumber: data.phoneNumber,
+    department: data.department
+  };
+};
 
 const reducer = (state, action) => {
   switch (action.type) {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -76,6 +77,9 @@ function StepApproverDialog({ open, mode, initialData, selectedMaster, userOptio
     });
   }, [initialData, selectedMaster]);
 
+  const selectedUser = userOptions.find((user) => Number(user.userId) === Number(form.userId))
+    ?? (form.userId ? { ...initialData, userId: form.userId } : null);
+
   return (
     <Dialog open={open} onClose={isPending ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{mode === "edit" ? "Edit Checksheet Approver" : "Create Checksheet Approver"}</DialogTitle>
@@ -86,18 +90,20 @@ function StepApproverDialog({ open, mode, initialData, selectedMaster, userOptio
             value={getChecksheetMasterDisplayName(selectedMaster)}
             InputProps={{ readOnly: true }}
           />
-          <TextField
-            select
-            label="User"
-            value={form.userId}
-            onChange={(event) => setForm((current) => ({ ...current, userId: Number(event.target.value) }))}
-          >
-            {userOptions.map((user) => (
-              <MenuItem key={user.userId} value={user.userId}>
-                {getUserDisplayName(user)}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Autocomplete
+            options={userOptions}
+            value={selectedUser}
+            disabled={isPending}
+            autoHighlight
+            openOnFocus
+            isOptionEqualToValue={(option, value) => Number(option.userId) === Number(value.userId)}
+            getOptionLabel={getUserDisplayName}
+            onChange={(_, user) => setForm((current) => ({ ...current, userId: user?.userId ?? "" }))}
+            noOptionsText="No users found"
+            renderInput={(params) => (
+              <TextField {...params} label="User" placeholder="Search employee code or name" />
+            )}
+          />
           <TextField
             select
             label="Allowed Step"

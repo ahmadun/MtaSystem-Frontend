@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Dialog,
@@ -69,23 +70,28 @@ function RepairmanCheckerDialog({ open, mode, initialData, userOptions, onClose,
     });
   }, [initialData]);
 
+  const selectedUser = userOptions.find((user) => Number(user.userId) === Number(form.userId))
+    ?? (form.userId ? { ...initialData, userId: form.userId } : null);
+
   return (
     <Dialog open={open} onClose={isPending ? undefined : onClose} fullWidth maxWidth="sm">
       <DialogTitle>{mode === "edit" ? "Edit Repairman Checker" : "Create Repairman Checker"}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
-          <TextField
-            select
-            label="User"
-            value={form.userId}
-            onChange={(event) => setForm((current) => ({ ...current, userId: Number(event.target.value) }))}
-          >
-            {userOptions.map((user) => (
-              <MenuItem key={user.userId} value={user.userId}>
-                {getUserDisplayName(user)}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Autocomplete
+            options={userOptions}
+            value={selectedUser}
+            disabled={isPending}
+            autoHighlight
+            openOnFocus
+            isOptionEqualToValue={(option, value) => Number(option.userId) === Number(value.userId)}
+            getOptionLabel={getUserDisplayName}
+            onChange={(_, user) => setForm((current) => ({ ...current, userId: user?.userId ?? "" }))}
+            noOptionsText="No users found"
+            renderInput={(params) => (
+              <TextField {...params} label="User" placeholder="Search employee code or name" />
+            )}
+          />
           <TextField
             select
             label="Checker Level"
@@ -126,7 +132,7 @@ export default function RepairmanCheckersPage() {
   });
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const { data, isLoading, isError, error, isFetching } = useRepairmanCheckers({
+  const { data, isLoading, isError, error } = useRepairmanCheckers({
     page,
     pageSize,
     checkerLevel: filters.checkerLevel || undefined
