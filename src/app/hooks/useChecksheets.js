@@ -535,6 +535,25 @@ export const useApprovalTemplates = (params = {}, options = {}) =>
     ...options
   });
 
+export const useAllActiveApprovalTemplates = () =>
+  useQuery({
+    queryKey: ["checksheets", "active-approval-templates"],
+    queryFn: async () => {
+      const pageSize = 100;
+      const firstPage = (await getApprovalTemplates({ page: 1, pageSize, isActive: true })).data;
+      const items = [...(firstPage?.items ?? [])];
+      const totalPages = firstPage?.totalPages ?? Math.ceil((firstPage?.totalCount ?? items.length) / pageSize);
+
+      for (let page = 2; page <= totalPages; page += 1) {
+        const result = (await getApprovalTemplates({ page, pageSize, isActive: true })).data;
+        items.push(...(result?.items ?? []));
+      }
+
+      return items;
+    },
+    staleTime: 30_000
+  });
+
 export const useApprovalTemplate = (id, options = {}) =>
   useQuery({
     queryKey: CHECKSHEET_KEYS.approvalTemplate(id),

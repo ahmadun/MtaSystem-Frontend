@@ -40,7 +40,7 @@ import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
   useApprovalRequest,
-  useApprovalTemplates,
+  useAllActiveApprovalTemplates,
   useChecksheetMachines,
   useChecksheetMasters,
   useChecksheetSubmission,
@@ -837,7 +837,7 @@ export default function ChecksheetSubmissionDetailPage() {
     enabled: !!submissionId && !!checksheetMode,
     placeholderData: (previousData) => previousData ?? baseSubmission
   });
-  const { data: approvalTemplates } = useApprovalTemplates({ page: 1, pageSize: 100, isActive: true });
+  const { data: approvalTemplates = [], isLoading: isLoadingApprovalTemplates, isError: isApprovalTemplatesError } = useAllActiveApprovalTemplates();
   const createInspectionMutation = useCreateInspectionRecord(submissionId);
   const { data: checksheetMasters = [] } = useChecksheetMasters();
   const { data: machinesPage } = useChecksheetMachines({ page: 1, pageSize: 100 });
@@ -2046,9 +2046,11 @@ export default function ChecksheetSubmissionDetailPage() {
                 label="Approval Template"
                 value={approvalTemplateId}
                 onChange={(event) => setApprovalTemplateId(event.target.value)}
+                disabled={isLoadingApprovalTemplates || isApprovalTemplatesError || approvalTemplates.length === 0}
+                helperText={isApprovalTemplatesError ? "Unable to load approval templates." : approvalTemplates.length === 0 && !isLoadingApprovalTemplates ? "No active approval templates available." : undefined}
                 sx={{ minWidth: 280 }}
               >
-                {(approvalTemplates?.items ?? []).map((template) => (
+                {approvalTemplates.map((template) => (
                   <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
                 ))}
               </TextField>
