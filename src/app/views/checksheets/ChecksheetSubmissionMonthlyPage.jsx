@@ -37,6 +37,7 @@ import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { getChecksheetSubmissionMonthlyView } from "@api/checksheets";
 import { ConfirmationDialog } from "app/components";
 import useAuth from "app/hooks/useAuth";
+import { resolveChecksheetImageSrc } from "/src/lib/checksheet-image-url";
 import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
@@ -165,7 +166,7 @@ function TemplateItemCellContent({ column, item, value }) {
     return value || "-";
   }
 
-  const imageUrl = getImageUrl(value);
+  const imageUrl = resolveChecksheetImageSrc(value);
   if (!imageUrl) {
     return "-";
   }
@@ -812,20 +813,6 @@ function getVisibleApprovers(step, max = 2) {
   return (step?.approvers ?? []).slice(0, max);
 }
 
-function stepIncludesCurrentUser(step, userId) {
-  const normalizedUserId = Number(userId);
-  if (!normalizedUserId) {
-    return false;
-  }
-
-  const singleApproverId = Number(step?.approver?.userId);
-  if (singleApproverId && singleApproverId === normalizedUserId) {
-    return true;
-  }
-
-  return (step?.approvers ?? []).some((approver) => Number(approver?.userId) === normalizedUserId);
-}
-
 function renderApprovalChip(person) {
   const fullName = getApproverDisplayName(person);
 
@@ -1429,7 +1416,7 @@ export default function ChecksheetSubmissionMonthlyPage() {
     const alreadyApproved = daySummary.approvals?.some((approval) => approval.stepId === step.id);
     if (alreadyApproved) return false;
 
-    if (!stepIncludesCurrentUser(step, user.id)) return false;
+    if (!step.isAssignedApprover) return false;
 
     return steps
       .filter((entry) => entry.stepOrder < step.stepOrder)

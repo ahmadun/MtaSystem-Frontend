@@ -197,6 +197,33 @@ export const useChecksheetMachine = (machineCode, options = {}) =>
     ...options
   });
 
+export const useChecksheetStandMachines = (checksheetMasterId, lineCode, options = {}) =>
+  useQuery({
+    queryKey: ["checksheets", "masters", "stand-machines", checksheetMasterId, lineCode],
+    queryFn: async () => {
+      const machines = [];
+      let page = 1;
+      let hasNextPage;
+
+      do {
+        const response = await getChecksheetMachines({
+          checksheetMasterId,
+          lineCode,
+          page,
+          pageSize: 100
+        });
+        machines.push(...(response.data?.items ?? []));
+        hasNextPage = response.data?.hasNextPage;
+        page += 1;
+      } while (hasNextPage);
+
+      return machines;
+    },
+    enabled: !!checksheetMasterId && !!lineCode,
+    staleTime: 30_000,
+    ...options
+  });
+
 export const useCreateChecksheetMaster = () =>
   useSnackbarMutation(createChecksheetMaster, [CHECKSHEET_KEYS.all], "Checksheet master created successfully");
 

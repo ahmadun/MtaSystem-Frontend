@@ -561,7 +561,10 @@ function ScanToOpenDialog({ open, targetSubmission, canUseManualCreate, onClose,
 }
 
 function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplicate }) {
-  const machinesQuery = useChecksheetMachines({ page: 1, pageSize: 100 }, { enabled: open });
+  const [machineInput, setMachineInput] = useState("");
+  const [machineSearch, setMachineSearch] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState(null);
+  const machinesQuery = useChecksheetMachines({ page: 1, pageSize: 100, search: machineSearch || undefined }, { enabled: open });
   const groupsQuery = useChecksheetGroups({ enabled: open });
   const createMutation = useCreateChecksheetSubmission();
   const [form, setForm] = useState({
@@ -574,6 +577,9 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
 
   useEffect(() => {
     if (!open) {
+      setMachineInput("");
+      setMachineSearch("");
+      setSelectedMachine(null);
       setForm({
         machineCode: "",
         checksheetMode: "",
@@ -584,8 +590,13 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
     }
   }, [open]);
 
+  useEffect(() => {
+    const timeout = setTimeout(() => setMachineSearch(selectedMachine?.machineCode ?? machineInput.trim()), 300);
+    return () => clearTimeout(timeout);
+  }, [machineInput, selectedMachine]);
+
   const machines = machinesQuery.data?.items ?? [];
-  const selectedMachine = machines.find((item) => item.machineCode === form.machineCode);
+  const machineSearchPending = !selectedMachine && machineInput.trim() !== machineSearch;
   const groupOptions = useMemo(
     () => buildGroupOptions(groupsQuery.data, selectedMachine),
     [groupsQuery.data, selectedMachine]
@@ -599,11 +610,11 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
     }));
   }, [groupOptions]);
 
-  const handleMachineChange = (machineCode) => {
-    const machine = machines.find((item) => item.machineCode === machineCode);
+  const handleMachineChange = (machine) => {
+    setSelectedMachine(machine);
     setForm((current) => ({
       ...current,
-      machineCode,
+      machineCode: machine?.machineCode ?? "",
       checksheetMode: machine?.modes?.[0] ?? "",
       groupCode: machine?.groupCodes?.length === 1 ? machine.groupCodes[0] : ""
     }));
@@ -653,18 +664,29 @@ function AdminCreateSubmissionDialog({ open, onClose, navigate, onResolveDuplica
           <Alert severity="info">
             Manual creation stays available for admin only. Operators should use QR scan from the machine location.
           </Alert>
-          <TextField
-            select
-            label="Machine Code"
-            value={form.machineCode}
-            onChange={(event) => handleMachineChange(event.target.value)}
-          >
-            {machines.map((machine) => (
-              <MenuItem key={machine.machineCode} value={machine.machineCode}>
-                {[machine.machineCode, machine.checksheetName].filter(Boolean).join(" - ")}
-              </MenuItem>
-            ))}
-          </TextField>
+          <Autocomplete
+            options={machineSearchPending ? [] : machines}
+            value={selectedMachine}
+            onChange={(_, machine) => handleMachineChange(machine)}
+            inputValue={machineInput}
+            onInputChange={(_, value, reason) => {
+              if (reason === "input" && selectedMachine) handleMachineChange(null);
+              setMachineInput(value);
+            }}
+            getOptionLabel={(machine) => [machine.machineCode, machine.checksheetName].filter(Boolean).join(" - ")}
+            isOptionEqualToValue={(option, value) => option.machineCode === value.machineCode}
+            filterOptions={(options) => options}
+            loading={machineSearchPending || machinesQuery.isLoading || machinesQuery.isFetching}
+            renderInput={(params) => (
+              <TextField
+                {...params}
+                label="Machine Code"
+                placeholder="Search machine code or checksheet name"
+                error={machinesQuery.isError}
+                helperText={machinesQuery.isError ? "Could not load machine codes. Try searching again." : undefined}
+              />
+            )}
+          />
           <TextField
             select
             label="Mode"

@@ -23,6 +23,7 @@ import CloudUploadIcon from "@mui/icons-material/CloudUpload";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
 import SaveOutlinedIcon from "@mui/icons-material/SaveOutlined";
 import useAuth from "app/hooks/useAuth";
+import { resolveChecksheetImageSrc } from "/src/lib/checksheet-image-url";
 import {
   useAppendChecksheetSubmissionTemplateItems,
   useChecksheetSubmission,
@@ -180,7 +181,7 @@ function ReadOnlyCell({ column, item, value }) {
   }
 
   if ((explicitCellType ?? column.columnType) === "image" || isImageCellValue(value)) {
-    const imageUrl = getImageUrl(value);
+    const imageUrl = resolveChecksheetImageSrc(value);
     return imageUrl ? (
       <Box
         component="img"
@@ -321,7 +322,7 @@ function NewItemField({ column, item, itemIndex, existingItems, newItems, setNew
     );
   }
 
-  const imageUrl = getImageUrl(value);
+  const imageUrl = resolveChecksheetImageSrc(value);
   const existingImages = getColumnImageOptions(existingItems, newItems, column.columnKey);
 
   const handleImageChange = async (event) => {

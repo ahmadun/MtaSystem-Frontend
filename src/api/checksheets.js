@@ -86,7 +86,7 @@ export const getChecksheetMachines = async (params) => {
 };
 
 export const getChecksheetMachine = async (machineCode) => {
-  const response = await apiClient.get(`/checksheet-masters/machines/${machineCode}`);
+  const response = await apiClient.get(`/checksheet-masters/machines/${encodeURIComponent(machineCode)}`);
   return response.data;
 };
 

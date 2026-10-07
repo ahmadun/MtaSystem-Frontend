@@ -37,6 +37,7 @@ import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { authRoles } from "app/auth/authRoles";
 import useAuth from "app/hooks/useAuth";
+import { resolveChecksheetImageSrc } from "/src/lib/checksheet-image-url";
 import { ConfirmationDialog } from "app/components";
 import {
   useChecksheetTemplate,
@@ -614,7 +615,7 @@ function TemplateItemField({
       {value ? (
         <Box
           component="img"
-          src={value}
+          src={resolveChecksheetImageSrc(value)}
           alt={column.label}
           sx={{
             width: compact ? "100%" : "100%",
@@ -692,7 +693,7 @@ function TemplateItemField({
               <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
                 <Box
                   component="img"
-                  src={imageUrl}
+                  src={resolveChecksheetImageSrc(imageUrl)}
                   alt={`Existing ${imageIndex + 1}`}
                   sx={{
                     width: 48,

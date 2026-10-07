@@ -36,12 +36,14 @@ import { DatePicker, LocalizationProvider } from "@mui/x-date-pickers";
 import { ConfirmationDialog } from "app/components";
 import { getChecksheetSubmissions } from "@api/checksheets";
 import useAuth from "app/hooks/useAuth";
+import { resolveChecksheetImageSrc } from "/src/lib/checksheet-image-url";
 import {
   useApproveDailyInspectionStep,
   useApproveRepairRecord,
   useApprovalRequest,
   useAllActiveApprovalTemplates,
-  useChecksheetMachines,
+  useChecksheetMachine,
+  useChecksheetStandMachines,
   useChecksheetMasters,
   useChecksheetSubmission,
   useChecksheetSubmissionMonthlyView,
@@ -167,7 +169,7 @@ function TemplateItemCellContent({ column, item, value }) {
   }
 
 
-  const imageUrl = getImageUrl(value);
+  const imageUrl = resolveChecksheetImageSrc(value);
   if (!imageUrl) {
     return "-";
   }
@@ -631,33 +633,6 @@ function toTitleCase(value) {
     .replace(/^./, (char) => char.toUpperCase());
 }
 
-function getApproverDisplayName(person) {
-  return person?.fullName || person?.approvedByFullName || person?.username || person?.approvedByUsername || "-";
-}
-
-function getStepAccessNames(step) {
-  const approvers = step?.approvers ?? [];
-  if (approvers.length > 0) {
-    return approvers.map(getApproverDisplayName).join(", ");
-  }
-
-  return getApproverDisplayName(step?.approver);
-}
-
-function stepIncludesCurrentUser(step, userId) {
-  const normalizedUserId = Number(userId);
-  if (!normalizedUserId) {
-    return false;
-  }
-
-  const singleApproverId = Number(step?.approver?.userId);
-  if (singleApproverId && singleApproverId === normalizedUserId) {
-    return true;
-  }
-
-  return (step?.approvers ?? []).some((approver) => Number(approver?.userId) === normalizedUserId);
-}
-
 function parseColumnOptions(optionsJson) {
   if (!optionsJson) {
     return {};
@@ -840,7 +815,7 @@ export default function ChecksheetSubmissionDetailPage() {
   const { data: approvalTemplates = [], isLoading: isLoadingApprovalTemplates, isError: isApprovalTemplatesError } = useAllActiveApprovalTemplates();
   const createInspectionMutation = useCreateInspectionRecord(submissionId);
   const { data: checksheetMasters = [] } = useChecksheetMasters();
-  const { data: machinesPage } = useChecksheetMachines({ page: 1, pageSize: 100 });
+  const { data: currentMachine } = useChecksheetMachine(baseSubmission?.machineCode);
   const createSubmissionMutation = useCreateChecksheetSubmission();
   const updateSubmissionMutation = useUpdateChecksheetSubmission(submissionId);
   const deleteSubmissionMutation = useDeleteChecksheetSubmission();
@@ -911,7 +886,7 @@ export default function ChecksheetSubmissionDetailPage() {
     },
     [checksheetMode, inspectionDate, latestInspectionRecord?.inspectionDate, selectedInspectionRecord?.inspectionDate, selectedTemplateId, submission?.inspectionDate]
   );
-  const { data: monthlyView } = useChecksheetSubmissionMonthlyView(submissionId, monthlyParams, {
+  const { data: monthlyView, isPlaceholderData: isMonthlyViewPlaceholder } = useChecksheetSubmissionMonthlyView(submissionId, monthlyParams, {
     enabled: !!submissionId && !!monthlyParams?.year && !!monthlyParams?.month,
     placeholderData: (previousData) => previousData
   });
@@ -967,12 +942,15 @@ export default function ChecksheetSubmissionDetailPage() {
     !!currentApprovalRequestId &&
     ["submitted", "approved", "rejected"].includes(submission?.status) &&
     (isOwner || hasRespondedToCurrentApprovalRequest);
-  const machines = useMemo(() => machinesPage?.items ?? machinesPage ?? [], [machinesPage]);
-  const currentMachine = machines.find((item) => item.machineCode === submission?.machineCode);
   const currentMaster = checksheetMasters.find((item) =>
     Number(item.id) === Number(submission?.checksheetMasterId ?? currentMachine?.checksheetMasterId)
   );
   const useStandNoNavigation = !!currentMaster?.useStandNo;
+  const standMasterId = submission?.checksheetMasterId ?? currentMachine?.checksheetMasterId;
+  const standLineCode = submission?.lineCode ?? currentMachine?.lineCode;
+  const { data: standMachines = [] } = useChecksheetStandMachines(standMasterId, standLineCode, {
+    enabled: useStandNoNavigation && !!standMasterId && !!standLineCode
+  });
   const multiProductNo = submission?.multiProductNo || currentMachine?.multiProductNo || "-";
   const processName = submission?.processName || currentMachine?.processName || "-";
   const checksheetName = submission?.checksheetName || currentMachine?.checksheetName || "-";
@@ -992,7 +970,7 @@ export default function ChecksheetSubmissionDetailPage() {
       const lineCode = submission.lineCode ?? currentMachine?.lineCode;
       const processCode = submission.processCode ?? currentMachine?.processCode;
 
-      return machines
+      return standMachines
         .filter((machine) =>
           machine.isActive !== false &&
           String(machine.standNo ?? "").trim() &&
@@ -1005,7 +983,7 @@ export default function ChecksheetSubmissionDetailPage() {
           String(left.machineCode ?? "").localeCompare(String(right.machineCode ?? ""))
         );
     },
-    [currentMachine?.checksheetMasterId, currentMachine?.lineCode, currentMachine?.processCode, machines, submission, useStandNoNavigation]
+    [currentMachine?.checksheetMasterId, currentMachine?.lineCode, currentMachine?.processCode, standMachines, submission, useStandNoNavigation]
   );
   const weeklyEntryOptions = useMemo(
     () => getWeeklyEntryOptions(inspectionDate || latestInspectionRecord?.inspectionDate || submission?.inspectionDate),
@@ -1038,15 +1016,13 @@ export default function ChecksheetSubmissionDetailPage() {
     () =>
       [...(
         checksheetMode === "regular"
-          ? monthlyView?.regularApprovalSteps ?? submission?.template?.regularApprovalSteps ?? []
-          : monthlyView?.dailyApprovalSteps ?? submission?.template?.dailyApprovalSteps ?? []
+          ? monthlyView?.regularApprovalSteps ?? []
+          : monthlyView?.dailyApprovalSteps ?? []
       )].sort((left, right) => left.stepOrder - right.stepOrder),
     [
       checksheetMode,
       monthlyView?.dailyApprovalSteps,
-      monthlyView?.regularApprovalSteps,
-      submission?.template?.dailyApprovalSteps,
-      submission?.template?.regularApprovalSteps
+      monthlyView?.regularApprovalSteps
     ]
   );
   const recordValueMap = useMemo(() => {
@@ -1379,8 +1355,7 @@ export default function ChecksheetSubmissionDetailPage() {
 
   const canApproveInspectionStep = (step) => {
     if (!currentDaySummary?.recordId) return false;
-    if (!user?.id) return false;
-    if (!stepIncludesCurrentUser(step, user.id)) return false;
+    if (isMonthlyViewPlaceholder || !step.isAssignedApprover) return false;
 
     const alreadyApproved = currentDaySummary.approvals?.some((approval) => approval.stepId === step.id);
     if (alreadyApproved) return false;
@@ -1807,130 +1782,130 @@ export default function ChecksheetSubmissionDetailPage() {
                     {templateItems.map((item, rowIndex) => {
                       const effectiveValueType = getEffectiveValueType(item);
                       return (
-                      <TableRow key={item.id} hover>
-                        {templateColumns.map((column, columnIndex) => {
-                          const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
-                          const cellValue = item.data?.[column.columnKey];
-                          const isImageCell = isTemplateImageCell(column, item, cellValue);
+                        <TableRow key={item.id} hover>
+                          {templateColumns.map((column, columnIndex) => {
+                            const mergeCell = rowSpanMap[column.columnKey]?.[rowIndex];
+                            const cellValue = item.data?.[column.columnKey];
+                            const isImageCell = isTemplateImageCell(column, item, cellValue);
 
-                          if (mergeCell?.hidden) {
-                            return null;
-                          }
+                            if (mergeCell?.hidden) {
+                              return null;
+                            }
 
-                          return (
-                            <TableCell
-                              key={`${item.id}-${column.columnKey}`}
-                              rowSpan={mergeCell?.rowSpan ?? 1}
-                              data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
-                              sx={{
-                                ...getTemplateColumnCellSx(column, columnIndex, templateColumnWidths[columnIndex]),
-                                ...(isImageCell
-                                  ? {
-                                    width: "max-content",
-                                    minWidth: "max-content",
-                                    maxWidth: "none",
-                                    whiteSpace: "nowrap",
-                                    overflowWrap: "normal",
-                                    wordBreak: "normal"
-                                  }
-                                  : {}),
-                                verticalAlign: "middle",
-                              }}
-                            >
-                              <TemplateItemCellContent column={column} item={item} value={cellValue} />
-                            </TableCell>
-                          );
-                        })}
-                        <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>
-                          {effectiveValueType === "fixed" ? (
-                            <ButtonGroup
-                              size="small"
-                              disabled={!isDraft || isInspectionMutationPending}
-                              sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
-                            >
-                              {FIXED_OPTIONS.map((option) => {
-                                const isSelected = getEntryValue(item.id, "resultValue") === option;
+                            return (
+                              <TableCell
+                                key={`${item.id}-${column.columnKey}`}
+                                rowSpan={mergeCell?.rowSpan ?? 1}
+                                data-merged={(mergeCell?.rowSpan ?? 1) > 1 ? "true" : undefined}
+                                sx={{
+                                  ...getTemplateColumnCellSx(column, columnIndex, templateColumnWidths[columnIndex]),
+                                  ...(isImageCell
+                                    ? {
+                                      width: "max-content",
+                                      minWidth: "max-content",
+                                      maxWidth: "none",
+                                      whiteSpace: "nowrap",
+                                      overflowWrap: "normal",
+                                      wordBreak: "normal"
+                                    }
+                                    : {}),
+                                  verticalAlign: "middle",
+                                }}
+                              >
+                                <TemplateItemCellContent column={column} item={item} value={cellValue} />
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell sx={{ width: ENTRY_COLUMN_WIDTH, minWidth: ENTRY_COLUMN_WIDTH, pl: 2 }}>
+                            {effectiveValueType === "fixed" ? (
+                              <ButtonGroup
+                                size="small"
+                                disabled={!isDraft || isInspectionMutationPending}
+                                sx={{ flexShrink: 0, whiteSpace: "nowrap" }}
+                              >
+                                {FIXED_OPTIONS.map((option) => {
+                                  const isSelected = getEntryValue(item.id, "resultValue") === option;
+                                  return (
+                                    <Button
+                                      key={`${item.id}-${option}`}
+                                      variant={isSelected ? "contained" : "outlined"}
+                                      onClick={() => handleInspectionValueChange(item.id, { resultValue: option })}
+                                      sx={{
+                                        px: 1,
+                                        fontSize: 12,
+                                        fontWeight: 600,
+                                        minWidth: 40,
+                                        whiteSpace: "nowrap"
+                                      }}
+                                    >
+                                      {option}
+                                    </Button>
+                                  );
+                                })}
+                              </ButtonGroup>
+                            ) : effectiveValueType === "number" ? (
+                              <TextField
+                                value={getEntryValue(item.id, "resultValue")}
+                                onChange={(event) => handleInspectionValueChange(item.id, { resultValue: sanitizeNumberInput(event.target.value) })}
+                                placeholder="Enter number"
+                                size="small"
+                                fullWidth
+                                disabled={!isDraft || isInspectionMutationPending}
+                                inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
+                              />
+                            ) : effectiveValueType === JIG_NO_CHECK_VALUE_TYPE ? (
+                              (() => {
+                                const jigNoCheckLines = formatJigNoCheckValue(getEntryValue(item.id, "resultValue"));
                                 return (
                                   <Button
-                                    key={`${item.id}-${option}`}
-                                    variant={isSelected ? "contained" : "outlined"}
-                                    onClick={() => handleInspectionValueChange(item.id, { resultValue: option })}
+                                    variant={jigNoCheckLines.length ? "contained" : "outlined"}
+                                    size="small"
+                                    fullWidth
+                                    disabled={!isDraft || isInspectionMutationPending}
+                                    onClick={() => handleOpenJigNoCheckDialog(item.id)}
                                     sx={{
-                                      px: 1,
-                                      fontSize: 12,
-                                      fontWeight: 600,
-                                      minWidth: 40,
-                                      whiteSpace: "nowrap"
+                                      justifyContent: "flex-start",
+                                      textAlign: "left",
+                                      textTransform: "none",
+                                      whiteSpace: "normal"
                                     }}
                                   >
-                                    {option}
+                                    {jigNoCheckLines.length ? (
+                                      <Stack spacing={0.25} sx={{ alignItems: "flex-start" }}>
+                                        {jigNoCheckLines.map((line, lineIndex) => (
+                                          <Typography key={`${item.id}-jig-no-check-${lineIndex}`} variant="caption" component="span">
+                                            {line}
+                                          </Typography>
+                                        ))}
+                                      </Stack>
+                                    ) : (
+                                      "Input Point"
+                                    )}
                                   </Button>
                                 );
-                              })}
-                            </ButtonGroup>
-                          ) : effectiveValueType === "number" ? (
+                              })()
+                            ) : (
+                              <TextField
+                                value={getEntryValue(item.id, "resultValue")}
+                                onChange={(e) => handleInspectionValueChange(item.id, { resultValue: e.target.value })}
+                                placeholder="Enter value"
+                                size="small"
+                                fullWidth
+                                disabled={!isDraft || isInspectionMutationPending}
+                              />
+                            )}
+                          </TableCell>
+                          <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>
                             <TextField
-                              value={getEntryValue(item.id, "resultValue")}
-                              onChange={(event) => handleInspectionValueChange(item.id, { resultValue: sanitizeNumberInput(event.target.value) })}
-                              placeholder="Enter number"
-                              size="small"
-                              fullWidth
-                              disabled={!isDraft || isInspectionMutationPending}
-                              inputProps={{ inputMode: "decimal", pattern: "[0-9]*[.]?[0-9]*" }}
-                            />
-                          ) : effectiveValueType === JIG_NO_CHECK_VALUE_TYPE ? (
-                            (() => {
-                              const jigNoCheckLines = formatJigNoCheckValue(getEntryValue(item.id, "resultValue"));
-                              return (
-                                <Button
-                                  variant={jigNoCheckLines.length ? "contained" : "outlined"}
-                                  size="small"
-                                  fullWidth
-                                  disabled={!isDraft || isInspectionMutationPending}
-                                  onClick={() => handleOpenJigNoCheckDialog(item.id)}
-                                  sx={{
-                                    justifyContent: "flex-start",
-                                    textAlign: "left",
-                                    textTransform: "none",
-                                    whiteSpace: "normal"
-                                  }}
-                                >
-                                  {jigNoCheckLines.length ? (
-                                    <Stack spacing={0.25} sx={{ alignItems: "flex-start" }}>
-                                      {jigNoCheckLines.map((line, lineIndex) => (
-                                        <Typography key={`${item.id}-jig-no-check-${lineIndex}`} variant="caption" component="span">
-                                          {line}
-                                        </Typography>
-                                      ))}
-                                    </Stack>
-                                  ) : (
-                                    "Input Point"
-                                  )}
-                                </Button>
-                              );
-                            })()
-                          ) : (
-                            <TextField
-                              value={getEntryValue(item.id, "resultValue")}
-                              onChange={(e) => handleInspectionValueChange(item.id, { resultValue: e.target.value })}
-                              placeholder="Enter value"
+                              value={getEntryValue(item.id, "remark")}
+                              onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}
+                              placeholder="Remark"
                               size="small"
                               fullWidth
                               disabled={!isDraft || isInspectionMutationPending}
                             />
-                          )}
-                        </TableCell>
-                        <TableCell sx={{ width: REMARK_COLUMN_WIDTH, minWidth: REMARK_COLUMN_WIDTH, pl: 2 }}>
-                          <TextField
-                            value={getEntryValue(item.id, "remark")}
-                            onChange={(event) => handleInspectionValueChange(item.id, { remark: event.target.value })}
-                            placeholder="Remark"
-                            size="small"
-                            fullWidth
-                            disabled={!isDraft || isInspectionMutationPending}
-                          />
-                        </TableCell>
-                      </TableRow>
+                          </TableCell>
+                        </TableRow>
                       );
                     })}
                   </TableBody>
@@ -1990,15 +1965,10 @@ export default function ChecksheetSubmissionDetailPage() {
                     return (
                       <Paper key={step.id} variant="outlined" sx={{ p: 2 }}>
                         <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2} alignItems={{ md: "center" }}>
-                          <Box>
-                            <Typography fontWeight={600}>{step.stepName}</Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              Access: {getStepAccessNames(step)}
-                            </Typography>
-                          </Box>
+                          <Typography fontWeight={600}>{step.stepName}</Typography>
 
                           {approval ? (
-                            <Chip label={`Approved by ${getApproverDisplayName(approval)}`} color="success" variant="outlined" />
+                            <Chip label="Approved" color="success" variant="outlined" />
                           ) : canApprove ? (
                             <Button
                               variant="outlined"
@@ -2014,6 +1984,8 @@ export default function ChecksheetSubmissionDetailPage() {
                       </Paper>
                     );
                   })
+                ) : !monthlyView ? (
+                  <Typography variant="body2" color="text.secondary">Loading approval steps...</Typography>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
                     No {checksheetMode === "regular" ? "regular" : "daily"} approval steps are configured on this checksheet template.

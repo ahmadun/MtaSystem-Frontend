@@ -4,6 +4,7 @@ import axios from "axios";
 import Loading from "app/components/MatxLoading";
 import { registerUser } from "/src/api/account";
 import { getMyProfile } from "/src/api/account";
+import { refreshAccessToken } from "/src/api/client";
 
 const API_BASE = import.meta.env.VITE_API_ENDPOINT;
 
@@ -26,9 +27,12 @@ const claim = (decodedToken, ...keys) => {
 
 const isValidToken = (accessToken) => {
   if (!accessToken) return false;
-  const decodedToken = jwtDecode(accessToken);
-
-  return decodedToken?.sub ? true : false;
+  try {
+    const decodedToken = jwtDecode(accessToken);
+    return Boolean(decodedToken?.sub && decodedToken.exp * 1000 > Date.now());
+  } catch {
+    return false;
+  }
 };
 
 const setSession = (accessToken, refreshToken) => {
@@ -157,7 +161,11 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     (async () => {
       try {
-        const accessToken = window.localStorage.getItem("accessToken");
+        let accessToken = window.localStorage.getItem("accessToken");
+
+        if (!isValidToken(accessToken) && window.localStorage.getItem("refreshToken")) {
+          accessToken = await refreshAccessToken();
+        }
 
         if (accessToken && isValidToken(accessToken)) {
           setSession(accessToken);
@@ -168,6 +176,7 @@ export const AuthProvider = ({ children }) => {
             const profileResponse = await getMyProfile();
             user = buildUser(profileResponse?.data ?? profileResponse);
           } catch (profileError) {
+            if (!window.localStorage.getItem("accessToken")) throw profileError;
             console.warn("Falling back to JWT claims for user initialization.", profileError);
             user = buildUser({
               id: claim(decoded, "sub", "nameid"),
