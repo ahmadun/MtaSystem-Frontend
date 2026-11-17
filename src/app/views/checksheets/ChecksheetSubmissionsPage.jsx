@@ -254,10 +254,10 @@ function ExistingSubmissionDialog({ open, pending, duplicates, inspectionDate, o
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose} disabled={pending}>Cancel</Button>
-        <Button onClick={onCreateNew} disabled={pending}>
+        <Button onClick={onCreateNew} disabled={true} sx={{ mr: "auto" }}>
           {pending ? "Creating..." : "Create New"}
         </Button>
+        <Button onClick={onClose} disabled={pending}>Cancel</Button>
         <Button variant="contained" onClick={onUseExisting} disabled={pending || duplicates.length === 0}>
           Use Existing
         </Button>

@@ -400,6 +400,15 @@ function ChecksheetMasterDialog({ open, mode, initialData, onClose, onSubmit, is
   );
 }
 
+function getDialogTemplates(templates, initialData, mode) {
+  const available = templates.filter((template) => String(template.checksheetMode).toLowerCase() === mode);
+  const selected = initialData?.modeTemplates ?? [];
+  const inactiveSelections = selected
+    .filter((item) => item.checksheetMode === mode && item.templateId && !available.some((template) => template.id === item.templateId))
+    .map((item) => ({ id: item.templateId, name: item.templateName ?? `Template ${item.templateId}`, isActive: false }));
+  return [...available, ...inactiveSelections];
+}
+
 function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, lines, groups, templates, machineCodeOptions, onClose, onSubmit, isPending }) {
   const initialMaster = checksheetMasters.find((item) => item.id === initialData?.checksheetMasterId);
   const initialMachineCodeSuffix = initialData?.machineCodeSuffix
@@ -445,28 +454,20 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
   const resolvedMachineCodeSuffix = form.machineCodeSuffix ?? "";
   const generatedMachineCode = `${form.lineCode || ""}${selectedMaster?.processCode || ""}${resolvedMachineCodeSuffix || ""}`;
   const dailyTemplates = useMemo(
-    () => templates.filter((template) => String(template.checksheetMode).toLowerCase() === "daily"),
-    [templates]
+    () => getDialogTemplates(templates, initialData, "daily"),
+    [templates, initialData]
   );
   const regularTemplates = useMemo(
-    () => templates.filter((template) => String(template.checksheetMode).toLowerCase() === "regular"),
-    [templates]
+    () => getDialogTemplates(templates, initialData, "regular"),
+    [templates, initialData]
   );
-  const hasDailyTemplateSelection = form.dailyTemplateIds.length > 0 && form.dailyTemplateIds.every((templateId) => dailyTemplates.some((template) => template.id === templateId));
-  const hasRegularTemplateSelection = form.regularTemplateIds.length > 0 && form.regularTemplateIds.every((templateId) => regularTemplates.some((template) => template.id === templateId));
+  const hasDailyTemplateSelection = form.dailyTemplateIds.length > 0 && form.dailyTemplateIds.every((templateId) => dailyTemplates.some((template) => template.id === templateId && template.isActive));
+  const hasRegularTemplateSelection = form.regularTemplateIds.length > 0 && form.regularTemplateIds.every((templateId) => regularTemplates.some((template) => template.id === templateId && template.isActive));
   const isModeTemplateValid = form.modes.every((mode) => {
     if (mode === "daily") return hasDailyTemplateSelection;
     if (mode === "regular") return hasRegularTemplateSelection;
     return false;
   });
-
-  useEffect(() => {
-    setForm((current) => ({
-      ...current,
-      dailyTemplateIds: current.dailyTemplateIds.filter((templateId) => dailyTemplates.some((template) => template.id === templateId)),
-      regularTemplateIds: current.regularTemplateIds.filter((templateId) => regularTemplates.some((template) => template.id === templateId))
-    }));
-  }, [dailyTemplates, regularTemplates]);
 
   const normalizedRepairForms = normalizeRepairFormsForSubmit(form.repairForms);
   const toggleMode = (modeValue) => {
@@ -656,14 +657,16 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
               select
               label="Daily Templates"
               value={form.dailyTemplateIds}
-              onChange={(event) => setForm((current) => ({ ...current, dailyTemplateIds: event.target.value.map(Number) }))}
-              SelectProps={{ multiple: true, renderValue: (selected) => dailyTemplates.filter((template) => selected.includes(template.id)).map((template) => template.name).join(", ") }}
-              helperText={dailyTemplates.length === 0 ? "No active daily templates available." : undefined}
+              onChange={(event) => setForm((current) => ({ ...current, dailyTemplateIds: event.target.value.map(Number).filter((id) => dailyTemplates.some((template) => template.id === id && template.isActive)) }))}
+              SelectProps={{ multiple: true, renderValue: (selected) => dailyTemplates.filter((template) => selected.includes(template.id)).map((template) => `${template.name}${template.isActive ? "" : " (Inactive)"}`).join(", ") }}
+              helperText={form.dailyTemplateIds.some((id) => dailyTemplates.some((template) => template.id === id && !template.isActive))
+                ? "Select an active template to replace inactive selections."
+                : dailyTemplates.every((template) => !template.isActive) ? "No active daily templates available." : undefined}
             >
               {dailyTemplates.map((template) => (
                 <MenuItem key={template.id} value={template.id}>
                   <Checkbox checked={form.dailyTemplateIds.includes(template.id)} />
-                  {template.name}
+                  {template.name}{template.isActive ? "" : " (Inactive)"}
                 </MenuItem>
               ))}
             </TextField>
@@ -673,14 +676,16 @@ function ChecksheetLineDialog({ open, mode, initialData, checksheetMasters, line
               select
               label="Regular Templates"
               value={form.regularTemplateIds}
-              onChange={(event) => setForm((current) => ({ ...current, regularTemplateIds: event.target.value.map(Number) }))}
-              SelectProps={{ multiple: true, renderValue: (selected) => regularTemplates.filter((template) => selected.includes(template.id)).map((template) => template.name).join(", ") }}
-              helperText={regularTemplates.length === 0 ? "No active regular templates available." : undefined}
+              onChange={(event) => setForm((current) => ({ ...current, regularTemplateIds: event.target.value.map(Number).filter((id) => regularTemplates.some((template) => template.id === id && template.isActive)) }))}
+              SelectProps={{ multiple: true, renderValue: (selected) => regularTemplates.filter((template) => selected.includes(template.id)).map((template) => `${template.name}${template.isActive ? "" : " (Inactive)"}`).join(", ") }}
+              helperText={form.regularTemplateIds.some((id) => regularTemplates.some((template) => template.id === id && !template.isActive))
+                ? "Select an active template to replace inactive selections."
+                : regularTemplates.every((template) => !template.isActive) ? "No active regular templates available." : undefined}
             >
               {regularTemplates.map((template) => (
                 <MenuItem key={template.id} value={template.id}>
                   <Checkbox checked={form.regularTemplateIds.includes(template.id)} />
-                  {template.name}
+                  {template.name}{template.isActive ? "" : " (Inactive)"}
                 </MenuItem>
               ))}
             </TextField>
@@ -1802,20 +1807,24 @@ export function ChecksheetLinesPage() {
             isActive: payload.isActive
           };
 
+          const saveTemplates = async (machineCode, modesToSave) => {
+            if (modesToSave.includes("daily") && payload.dailyTemplateIds?.length) {
+              await upsertModeTemplate.mutateAsync({ machineCode, checksheetMode: "daily", templateIds: payload.dailyTemplateIds });
+            }
+            if (modesToSave.includes("regular") && payload.regularTemplateIds?.length) {
+              await upsertModeTemplate.mutateAsync({ machineCode, checksheetMode: "regular", templateIds: payload.regularTemplateIds });
+            }
+          };
+
           let resolvedMachineCode = dialogState.mode === "edit" ? dialogState.data.machineCode : "";
           if (dialogState.mode === "edit") {
+            await saveTemplates(resolvedMachineCode, payload.modes.filter((mode) => dialogState.data.modes.includes(mode)));
             await updateMachine.mutateAsync(basePayload);
+            await saveTemplates(resolvedMachineCode, payload.modes.filter((mode) => !dialogState.data.modes.includes(mode)));
           } else {
             const createdResponse = await createMachine.mutateAsync(basePayload);
             resolvedMachineCode = createdResponse?.data?.machineCode ?? "";
-          }
-
-          const machineCode = dialogState.mode === "edit" ? dialogState.data.machineCode : resolvedMachineCode;
-          if (payload.modes.includes("daily") && payload.dailyTemplateIds?.length) {
-            await upsertModeTemplate.mutateAsync({ machineCode, checksheetMode: "daily", templateIds: payload.dailyTemplateIds });
-          }
-          if (payload.modes.includes("regular") && payload.regularTemplateIds?.length) {
-            await upsertModeTemplate.mutateAsync({ machineCode, checksheetMode: "regular", templateIds: payload.regularTemplateIds });
+            await saveTemplates(resolvedMachineCode, payload.modes);
           }
 
           setDialogState({ open: false, mode: "create", data: null });
